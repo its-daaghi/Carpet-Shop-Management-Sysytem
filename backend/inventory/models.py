@@ -64,7 +64,7 @@ class Employee(models.Model):
 class SalaryPayment(models.Model):
     employee = models.ForeignKey(Employee, related_name='payments', on_delete=models.CASCADE)
     amount = models.CharField(max_length=50) # e.g. "PKR 5000"
-    remarks = models.TextField(default='No remarks')
+    remarks = models.TextField(default='No remarks', null=True, blank=True)
     date = models.CharField(max_length=50) # Matching frontend format
     month = models.CharField(max_length=50)
     created_at = models.DateTimeField(auto_now_add=True)
@@ -95,7 +95,7 @@ class FactoryPayment(models.Model):
     amount = models.CharField(max_length=50) # Matching SalaryPayment pattern
     date = models.CharField(max_length=50) 
     month = models.CharField(max_length=50)
-    remarks = models.TextField(default='No remarks')
+    remarks = models.TextField(default='No remarks', null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
 
     def __str__(self):
@@ -121,7 +121,7 @@ class Sale(models.Model):
     sale_type = models.CharField(max_length=20, choices=SALE_TYPES, default='Cash')
     status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='Paid')
     date = models.CharField(max_length=50) # Matching frontend format YYYY-MM-DD
-    remarks = models.TextField(default='No remarks')
+    remarks = models.TextField(default='No remarks', null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
 
     def __str__(self):

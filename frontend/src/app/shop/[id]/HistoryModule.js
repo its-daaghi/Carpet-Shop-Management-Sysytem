@@ -72,7 +72,7 @@ export default function HistoryModule() {
       return [
         index + 1,
         `Roll: ${item.roll_id_str || item.roll || 'N/A'}`,
-        `${item.length || 0} x ${item.width || 0} (${sqft} sqft)`,
+        `${item.length || 0} ft x ${item.width || 0} ft (${sqft} sqft)`,
         `PKR ${Number(item.unit_price || 0).toLocaleString()}`,
         `PKR ${Number(item.subtotal || 0).toLocaleString()}`
       ];

@@ -42,6 +42,19 @@ export default function BillingModule() {
 
   const [activeCategory, setActiveCategory] = useState('All');
   const [loading, setLoading] = useState(false);
+  const [lastCreatedSale, setLastCreatedSale] = useState(null);
+
+  const resetForm = () => {
+    setCart([]);
+    setCustomer({
+      name: '',
+      mobile: '',
+      sale_type: 'Cash',
+      paid_amount: 0,
+      remarks: ''
+    });
+    setLastCreatedSale(null);
+  };
 
   const fetchStock = async () => {
     try {
@@ -138,6 +151,7 @@ export default function BillingModule() {
 
       if (resp.ok) {
         const result = await resp.json();
+        setLastCreatedSale(result);
         setStep(3);
         fetchStock();
       } else {
@@ -150,7 +164,72 @@ export default function BillingModule() {
     }
   };
 
-  // generateInvoice moved to HistoryModule
+  // generateInvoice for direct printing
+  const generateInvoice = (sale) => {
+    if (!sale) return;
+    const doc = new jsPDF();
+    const shopName = shopId === 'usman' ? 'Usman Carpet & Qaleen Center' : 'Hanif Carpet Premium Outlet';
+    
+    // Header
+    doc.setFillColor(184, 134, 11);
+    doc.rect(0, 0, 210, 40, 'F');
+    doc.setFontSize(24);
+    doc.setTextColor(255);
+    doc.setFont('helvetica', 'bold');
+    doc.text(shopName.toUpperCase(), 14, 25);
+    doc.setFontSize(10);
+    doc.text('PREMIUM FLOORING SOLUTIONS', 14, 32);
+
+    doc.setTextColor(0);
+    doc.setFontSize(14);
+    doc.text('INVOICE / BILL', 14, 55);
+    doc.setFontSize(10);
+    doc.text(`Invoice No: #SALE-${sale.id}`, 14, 65);
+    doc.text(`Date: ${sale.date}`, 14, 70);
+    doc.text(`Payment Type: ${sale.sale_type}`, 14, 75);
+
+    doc.text('BILL TO:', 120, 65);
+    doc.setFont('helvetica', 'bold');
+    doc.text(sale.customer_name, 120, 70);
+    doc.setFont('helvetica', 'normal');
+    doc.text(sale.customer_mobile || 'N/A', 120, 75);
+
+    const tableData = sale.items.map((item, index) => {
+      const isArea = (item.width || 0) > 1; // Basic check for area items
+      const desc = isArea ? `${item.length || 0} x ${item.width || 0} (${(item.length || 0) * (item.width || 0)} sqft)` : `${item.length || 0} Pcs`;
+      return [
+        index + 1,
+        `Roll: ${item.roll_id_str || item.roll || 'N/A'}`,
+        desc,
+        `PKR ${Number(item.unit_price || 0).toLocaleString()}`,
+        `PKR ${Number(item.subtotal || 0).toLocaleString()}`
+      ];
+    });
+
+    autoTable(doc, {
+      startY: 90,
+      head: [['#', 'Description', 'Qty/Dimensions', 'Unit Price', 'Subtotal']],
+      body: tableData,
+      theme: 'striped',
+      headStyles: { fillColor: [184, 134, 11] }
+    });
+
+    const finalY = doc.lastAutoTable.finalY + 10;
+    doc.text('Total Amount:', 140, finalY);
+    doc.text(`PKR ${sale.total_amount.toLocaleString()}`, 190, finalY, { align: 'right' });
+    doc.text('Paid Amount:', 140, finalY + 7);
+    doc.text(`PKR ${sale.paid_amount.toLocaleString()}`, 190, finalY + 7, { align: 'right' });
+    doc.setFontSize(12);
+    doc.setFont('helvetica', 'bold');
+    doc.text('Balance Due:', 140, finalY + 16);
+    doc.text(`PKR ${sale.balance_amount.toLocaleString()}`, 190, finalY + 16, { align: 'right' });
+
+    doc.setFontSize(8);
+    doc.setFont('helvetica', 'italic');
+    doc.text('Thank you for your business! This is a system-generated invoice.', 105, 280, { align: 'center' });
+
+    doc.save(`Invoice_${sale.customer_name}_${sale.date}.pdf`);
+  };
 
   const categories = ['All', ...new Set(stock.map(s => s.category || 'Uncategorized'))];
 
@@ -224,7 +303,7 @@ export default function BillingModule() {
                           <h5 className="font-black uppercase tracking-tight text-sm">{item.roll_id}</h5>
                           <p className="text-[10px] text-zinc-500 font-bold uppercase tracking-widest mt-1">{item.product_type} • {item.design}</p>
                           <div className="mt-4 pt-4 border-t border-white/5 flex justify-between items-center">
-                            <span className="text-[9px] font-black text-zinc-600 uppercase tracking-widest">{item.length}m x {item.width}m</span>
+                            <span className="text-[9px] font-black text-zinc-600 uppercase tracking-widest">{item.length} ft x {item.width} ft</span>
                             <div className={`p-2 rounded-lg ${isInCart ? 'bg-emerald-500 text-white' : 'bg-primary/10 bronze-text group-hover:bg-primary group-hover:text-black'} transition-all`}>
                                {isInCart ? <CheckCircle2 size={16} /> : <Plus size={16} />}
                             </div>
@@ -268,9 +347,9 @@ export default function BillingModule() {
                         </div>
                       </div>
                       <div className="space-y-2 pt-4">
-                        <label className="text-[9px] font-black text-zinc-500 uppercase tracking-widest ml-1">Remarks</label>
+                        <label className="text-[9px] font-black text-zinc-500 uppercase tracking-widest ml-1">Remarks (Optional)</label>
                         <textarea 
-                          rows={3} placeholder="Add any specific notes..."
+                          rows={3} placeholder="Optional notes..."
                           className="w-full bg-black/20 border border-white/5 rounded-xl p-4 outline-none focus:border-primary transition-all font-medium text-xs h-32"
                           value={customer.remarks} onChange={(e) => setCustomer({...customer, remarks: e.target.value})}
                         />
@@ -334,20 +413,24 @@ export default function BillingModule() {
                   <h3 className="text-5xl font-black italic uppercase tracking-tighter bronze-text mb-4">Transaction Successful</h3>
                   <p className="text-zinc-500 font-bold uppercase text-[10px] tracking-[0.4em] max-w-sm">The sale record has been securely committed to the database and inventory levels updated.</p>
                   
-                  <div className="flex gap-4 mt-12 w-full max-w-md">
+                  <div className="flex flex-col sm:flex-row gap-4 mt-12 w-full max-w-lg">
                     <button 
-                      onClick={() => { setStep(1); }}
-                      className="flex-1 bg-white/5 hover:bg-white/10 text-white rounded-2xl py-5 font-black uppercase text-[10px] tracking-widest border border-white/10 transition-all flex items-center justify-center gap-3"
+                      onClick={() => { resetForm(); setStep(1); }}
+                      className="flex-1 bg-white/5 hover:bg-white/10 text-white rounded-2xl py-5 font-black uppercase text-[10px] tracking-widest border border-white/10 transition-all flex flex-col items-center justify-center gap-1 group"
                     >
-                      <HistoryIcon size={18} />
-                      Go Back
+                      <HistoryIcon size={18} className="group-hover:scale-110 transition-transform" />
+                      Save & Finish
                     </button>
                     <button 
-                      onClick={() => setStep(1)}
-                      className="flex-1 bg-primary text-black rounded-2xl py-5 font-black uppercase text-[10px] tracking-widest shadow-2xl shadow-primary/30 transition-all flex items-center justify-center gap-3"
+                      onClick={() => { 
+                        generateInvoice(lastCreatedSale);
+                        resetForm();
+                        setStep(1);
+                      }}
+                      className="flex-1 bg-primary text-black rounded-2xl py-5 font-black uppercase text-[11px] tracking-widest shadow-2xl shadow-primary/30 transition-all flex flex-col items-center justify-center gap-1 hover:scale-105 active:scale-95"
                     >
-                      <Plus size={18} strokeWidth={3} />
-                      New Transaction
+                      <Printer size={18} strokeWidth={3} />
+                      Save & Print Invoice
                     </button>
                   </div>
                 </div>

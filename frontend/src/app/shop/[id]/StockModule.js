@@ -485,7 +485,7 @@ export default function StockModule() {
                 index === 0 ? design : '',
                 roll.roll_id,
                 roll.color,
-                roll.category === 'mate' ? `${roll.quantity || 1} Pcs` : `${roll.length} x ${roll.width}`,
+                roll.category === 'mate' ? `${roll.quantity || 1} Pcs` : `${roll.length} ft x ${roll.width} ft`,
                 roll.status
               ]);
             });
@@ -762,9 +762,9 @@ export default function StockModule() {
                                   <span className="text-xs font-black text-primary">{roll.quantity || 1} <span className="text-[9px] opacity-70">PCS</span></span>
                                 ) : (
                                   <>
-                                    <span className="text-xs font-bold bg-secondary/30 px-2 py-0.5 rounded border border-border/50">{roll.length}</span>
+                                    <span className="text-xs font-bold bg-secondary/30 px-2 py-0.5 rounded border border-border/50">{roll.length} <span className="text-[9px] opacity-60">ft</span></span>
                                     <X size={10} className="text-zinc-700" />
-                                    <span className="text-xs font-bold bg-secondary/30 px-2 py-0.5 rounded border border-border/50">{roll.width}</span>
+                                    <span className="text-xs font-bold bg-secondary/30 px-2 py-0.5 rounded border border-border/50">{roll.width} <span className="text-[9px] opacity-60">ft</span></span>
                                   </>
                                 )}
                               </div>
