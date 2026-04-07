@@ -1,0 +1,50 @@
+@import "tailwindcss";
+
+:root {
+  --background: #0f172a;
+  --foreground: #f8fafc;
+  --primary: #c5a059;
+  --primary-foreground: #0f172a;
+  --secondary: #1e293b;
+  --secondary-foreground: #f8fafc;
+  --accent: #c5a059;
+  --muted: #334155;
+  --border: rgba(197, 160, 89, 0.2);
+  --card: #1e293b;
+  --radius: 0.75rem;
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-primary: var(--primary);
+  --color-secondary: var(--secondary);
+  --color-accent: var(--accent);
+  --color-border: var(--border);
+  --color-card: var(--card);
+  
+  --font-sans: var(--font-geist-sans);
+  --font-mono: var(--font-geist-mono);
+}
+
+@layer base {
+  body {
+    background-color: var(--background);
+    color: var(--foreground);
+    @apply antialiased;
+  }
+}
+
+.glass {
+  background: rgba(30, 41, 59, 0.7);
+  backdrop-filter: blur(12px);
+  border: 1px solid var(--border);
+}
+
+.bronze-glow {
+  box-shadow: 0 0 20px rgba(197, 160, 89, 0.1);
+}
+
+.bronze-text {
+  color: var(--primary);
+}
