@@ -7,7 +7,10 @@ import {
   Phone, 
   Calendar, 
   History as HistoryIcon,
-  Printer
+  Printer,
+  Plus,
+  Check,
+  Banknote
 } from 'lucide-react';
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
@@ -33,6 +36,34 @@ export default function HistoryModule() {
   useEffect(() => {
     fetchSalesHistory();
   }, [shopId]);
+
+  const [paymentInputs, setPaymentInputs] = useState({});
+
+  const handlePaymentUpdate = async (saleId) => {
+    const amount = parseFloat(paymentInputs[saleId]);
+    if (!amount || amount <= 0) return alert("Please enter a valid amount");
+
+    try {
+      const resp = await fetch(`${API_BASE}/sales/${saleId}/add_payment/?shop=${shopId}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ amount })
+      });
+
+      const data = await resp.json();
+
+      if (resp.ok) {
+        setPaymentInputs(prev => ({ ...prev, [saleId]: '' }));
+        fetchSalesHistory();
+      } else {
+        console.error("Payment error from server:", data);
+        alert(data.error || `Server error (${resp.status}). Check console for details.`);
+      }
+    } catch (err) {
+      console.error("Network error during payment update:", err);
+      alert("Network error. Please check your connection.");
+    }
+  };
 
   const generateInvoice = (sale) => {
     const doc = new jsPDF();
@@ -109,8 +140,14 @@ export default function HistoryModule() {
   };
 
   const filteredHistory = salesHistory.filter(sale => {
-    if (historyFilter === 'Cash') return sale.sale_type === 'Cash';
-    if (historyFilter === 'Credit') return sale.sale_type === 'Advance' || sale.sale_type === 'Udhar';
+    if (historyFilter === 'Cash') {
+      // Show original Cash sales OR fully paid Advance/Udhar sales
+      return sale.sale_type === 'Cash' || sale.status === 'Paid';
+    }
+    if (historyFilter === 'Credit') {
+      // Show Advance/Udhar sales that are NOT fully paid yet
+      return (sale.sale_type === 'Advance' || sale.sale_type === 'Udhar') && sale.status !== 'Paid';
+    }
     return true;
   });
 
@@ -170,25 +207,56 @@ export default function HistoryModule() {
                  </div>
 
                  <div className="flex items-center gap-12">
-                   <div className="text-right">
-                     <p className="text-[9px] font-black uppercase tracking-widest text-zinc-600 mb-1">Total Amount</p>
-                     <p className="font-black italic text-lg tracking-tighter">PKR {sale.total_amount.toLocaleString()}</p>
-                   </div>
-                   
-                   <div className="text-right border-l border-white/5 pl-12 min-w-[150px]">
-                     <span className={`px-4 py-2 rounded-xl text-[9px] font-black uppercase tracking-[0.2em] ${sale.status === 'Paid' ? 'bg-emerald-500/10 text-emerald-500' : 'bg-red-500/10 text-red-500'}`}>
-                       {sale.status}
-                     </span>
-                     <p className="text-[9px] font-bold text-zinc-600 uppercase tracking-widest mt-3">{sale.sale_type}</p>
-                   </div>
+                    {sale.status !== 'Paid' && (
+                      <div className="flex items-center gap-3 bg-white/5 p-2 rounded-2xl border border-white/5">
+                        <div className="relative">
+                          <Banknote size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-zinc-500" />
+                          <input 
+                            type="number"
+                            placeholder="Amount"
+                            className="w-24 bg-black/20 border border-white/5 rounded-xl pl-8 pr-3 py-2 text-[10px] font-black outline-none focus:border-primary transition-all"
+                            value={paymentInputs[sale.id] || ''}
+                            onChange={(e) => setPaymentInputs({...paymentInputs, [sale.id]: e.target.value})}
+                          />
+                        </div>
+                        <button 
+                          onClick={() => handlePaymentUpdate(sale.id)}
+                          className="bg-primary text-black p-2 rounded-xl hover:scale-105 active:scale-95 transition-all shadow-lg shadow-primary/20"
+                          title="Confirm Payment"
+                        >
+                          <Plus size={14} strokeWidth={3} />
+                        </button>
+                      </div>
+                    )}
 
-                   <button 
-                     onClick={() => generateInvoice(sale)}
-                     className="w-12 h-12 rounded-2xl bg-white/5 group-hover:bg-primary group-hover:text-black transition-all flex items-center justify-center text-zinc-500 shadow-lg border border-white/5"
-                   >
-                     <Printer size={20} />
-                   </button>
-                 </div>
+                    <div className="text-right">
+                      <p className="text-[9px] font-black uppercase tracking-widest text-zinc-600 mb-1">
+                        {sale.status === 'Paid' ? 'Total Amount' : 'Remaining Balance'}
+                      </p>
+                      <p className={`font-black italic text-lg tracking-tighter ${sale.status !== 'Paid' ? 'text-red-500' : ''}`}>
+                        PKR {sale.status === 'Paid' ? sale.total_amount.toLocaleString() : sale.balance_amount.toLocaleString()}
+                      </p>
+                      {sale.status !== 'Paid' && (
+                        <p className="text-[8px] font-bold text-zinc-600 uppercase tracking-widest mt-1">
+                          Total: PKR {sale.total_amount.toLocaleString()}
+                        </p>
+                      )}
+                    </div>
+                    
+                    <div className="text-right border-l border-white/5 pl-12 min-w-[150px]">
+                      <span className={`px-4 py-2 rounded-xl text-[9px] font-black uppercase tracking-[0.2em] ${sale.status === 'Paid' ? 'bg-emerald-500/10 text-emerald-500' : sale.status === 'Partial' ? 'bg-amber-500/10 text-amber-500' : 'bg-red-500/10 text-red-500'}`}>
+                        {sale.status}
+                      </span>
+                      <p className="text-[9px] font-bold text-zinc-600 uppercase tracking-widest mt-3">{sale.sale_type}</p>
+                    </div>
+
+                    <button 
+                      onClick={() => generateInvoice(sale)}
+                      className="w-12 h-12 rounded-2xl bg-white/5 group-hover:bg-primary group-hover:text-black transition-all flex items-center justify-center text-zinc-500 shadow-lg border border-white/5"
+                    >
+                      <Printer size={20} />
+                    </button>
+                  </div>
                </div>
              </div>
            ))}
