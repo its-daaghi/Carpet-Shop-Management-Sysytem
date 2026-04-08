@@ -102,14 +102,14 @@ export default function HistoryModule() {
     doc.setFont('helvetica', 'bold');
     doc.text(sale.customer_name, 120, 70);
     doc.setFont('helvetica', 'normal');
-    doc.text(sale.customer_mobile || 'N/A', 120, 75);
+    doc.text(sale.customer_mobile || '', 120, 75);
 
     // Items Table
     const tableData = sale.items.map((item, index) => {
       const sqft = (item.length || 0) * (item.width || 0);
       return [
         index + 1,
-        `Roll: ${item.roll_id_str || item.roll || 'N/A'}`,
+        `Roll: ${item.roll_id_str || item.roll || ''}`,
         `${item.length || 0} ft x ${item.width || 0} ft (${sqft} sqft)`,
         `PKR ${Number(item.unit_price || 0).toLocaleString()}`,
         `PKR ${Number(item.subtotal || 0).toLocaleString()}`
@@ -453,7 +453,7 @@ export default function HistoryModule() {
                               <div key={idx} className="flex flex-col sm:flex-row sm:items-center justify-between p-4 rounded-xl bg-white/5 border border-white/5 text-[10px] font-black uppercase tracking-widest gap-4">
                                  <div className="flex items-center gap-4">
                                      <span className="text-zinc-500 w-4">#{idx + 1}</span>
-                                     <span className="text-white text-xs">Roll: {item.roll_id_str || item.roll || 'N/A'}</span>
+                                     <span className="text-white text-xs">Roll: {item.roll_id_str || item.roll || ''}</span>
                                  </div>
                                  <div className="flex flex-wrap items-center gap-6 text-zinc-400 justify-end flex-grow">
                                      <span className="bg-black/30 px-3 py-1 rounded-lg">Dims: {(item.width || 0) > 1 ? `${item.length} ft x ${item.width} ft` : `${item.length} Pcs`}</span>

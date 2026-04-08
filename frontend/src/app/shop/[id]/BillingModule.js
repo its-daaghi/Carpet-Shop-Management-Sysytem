@@ -192,14 +192,14 @@ export default function BillingModule() {
     doc.setFont('helvetica', 'bold');
     doc.text(sale.customer_name, 120, 70);
     doc.setFont('helvetica', 'normal');
-    doc.text(sale.customer_mobile || 'N/A', 120, 75);
+    doc.text(sale.customer_mobile || '', 120, 75);
 
     const tableData = sale.items.map((item, index) => {
       const isArea = (item.width || 0) > 1; // Basic check for area items
       const desc = isArea ? `${item.length || 0} x ${item.width || 0} (${(item.length || 0) * (item.width || 0)} sqft)` : `${item.length || 0} Pcs`;
       return [
         index + 1,
-        `Roll: ${item.roll_id_str || item.roll || 'N/A'}`,
+        `Roll: ${item.roll_id_str || item.roll || ''}`,
         desc,
         `PKR ${Number(item.unit_price || 0).toLocaleString()}`,
         `PKR ${Number(item.subtotal || 0).toLocaleString()}`
