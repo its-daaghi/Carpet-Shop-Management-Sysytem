@@ -1,5 +1,5 @@
 from rest_framework import serializers
-from .models import ProductType, Design, Color, Roll, Employee, SalaryPayment, Expense, Factory, FactoryPayment, Sale, SaleItem
+from .models import ProductType, Design, Color, Roll, Employee, SalaryPayment, Expense, Factory, FactoryPayment, Sale, SaleItem, SalePaymentHistory
 
 class ColorSerializer(serializers.ModelSerializer):
     class Meta:
@@ -60,8 +60,15 @@ class SaleItemSerializer(serializers.ModelSerializer):
         fields = '__all__'
         read_only_fields = ['sale']
 
+class SalePaymentHistorySerializer(serializers.ModelSerializer):
+    class Meta:
+        model = SalePaymentHistory
+        fields = '__all__'
+        read_only_fields = ['sale']
+
 class SaleSerializer(serializers.ModelSerializer):
     items = SaleItemSerializer(many=True)
+    payment_history = SalePaymentHistorySerializer(many=True, read_only=True)
 
     class Meta:
         model = Sale
@@ -70,6 +77,14 @@ class SaleSerializer(serializers.ModelSerializer):
     def create(self, validated_data):
         items_data = validated_data.pop('items')
         sale = Sale.objects.create(**validated_data)
+        
+        if getattr(sale, 'paid_amount', 0) > 0:
+            SalePaymentHistory.objects.create(
+                sale=sale,
+                amount=sale.paid_amount,
+                date=sale.date
+            )
+
         for item_data in items_data:
             roll = item_data.get('roll')
             length = item_data.get('length', 0.0)

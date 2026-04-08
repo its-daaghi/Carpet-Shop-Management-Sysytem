@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState, useEffect } from 'react';
-import { motion } from 'framer-motion';
+import { motion, AnimatePresence } from 'framer-motion';
 import { useParams } from 'next/navigation';
 import { 
   Phone, 
@@ -10,7 +10,9 @@ import {
   Printer,
   Plus,
   Check,
-  Banknote
+  Banknote,
+  Search,
+  Package
 } from 'lucide-react';
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
@@ -21,6 +23,11 @@ export default function HistoryModule() {
   const { id: shopId } = useParams();
   const [salesHistory, setSalesHistory] = useState([]);
   const [historyFilter, setHistoryFilter] = useState('All'); // 'All', 'Cash', 'Credit'
+  const [searchQuery, setSearchQuery] = useState('');
+  const today = new Date().toLocaleDateString('en-CA'); // Outputs YYYY-MM-DD natively
+  const [startDate, setStartDate] = useState(today);
+  const [endDate, setEndDate] = useState(today);
+  const [expandedSaleId, setExpandedSaleId] = useState(null);
 
   const fetchSalesHistory = async () => {
     try {
@@ -86,7 +93,7 @@ export default function HistoryModule() {
     doc.text('INVOICE / BILL', 14, 55);
     
     doc.setFontSize(10);
-    doc.text(`Invoice No: #SALE-${sale.id}`, 14, 65);
+    doc.text(`Invoice No: ${sale.bill_number || `#SALE-${sale.id}`}`, 14, 65);
     doc.text(`Date: ${sale.date}`, 14, 70);
     doc.text(`Payment Type: ${sale.sale_type}`, 14, 75);
 
@@ -120,6 +127,7 @@ export default function HistoryModule() {
 
     // Summary
     const finalY = doc.lastAutoTable.finalY + 10;
+    doc.setFont('helvetica', 'normal');
     doc.text('Total Amount:', 140, finalY);
     doc.text(`PKR ${sale.total_amount.toLocaleString()}`, 180, finalY, { align: 'right' });
     
@@ -131,6 +139,29 @@ export default function HistoryModule() {
     doc.text('Balance Due:', 140, finalY + 16);
     doc.text(`PKR ${sale.balance_amount.toLocaleString()}`, 180, finalY + 16, { align: 'right' });
 
+    if (sale.payment_history && sale.payment_history.length > 0) {
+      const paymentY = finalY + 30;
+      doc.setFontSize(12);
+      doc.setFont('helvetica', 'bold');
+      doc.setTextColor(0);
+      doc.text('PAYMENT TIMELINE', 14, paymentY);
+      
+      const paymentData = sale.payment_history.map((payment, index) => [
+        `Deposit #${index + 1}`,
+        payment.date,
+        `PKR ${Number(payment.amount).toLocaleString()}`
+      ]);
+
+      autoTable(doc, {
+        startY: paymentY + 5,
+        head: [['Ref', 'Date', 'Amount']],
+        body: paymentData,
+        theme: 'grid',
+        headStyles: { fillColor: [184, 134, 11] },
+        margin: { left: 14, right: 14 }
+      });
+    }
+
     // Footer
     doc.setFontSize(8);
     doc.setFont('helvetica', 'italic');
@@ -140,16 +171,93 @@ export default function HistoryModule() {
   };
 
   const filteredHistory = salesHistory.filter(sale => {
+    // 1. Type Filter
+    let matchesType = true;
     if (historyFilter === 'Cash') {
-      // Show original Cash sales OR fully paid Advance/Udhar sales
-      return sale.sale_type === 'Cash' || sale.status === 'Paid';
+      matchesType = sale.sale_type === 'Cash' || sale.status === 'Paid';
+    } else if (historyFilter === 'Credit') {
+      matchesType = (sale.sale_type === 'Advance' || sale.sale_type === 'Udhar') && sale.status !== 'Paid';
     }
-    if (historyFilter === 'Credit') {
-      // Show Advance/Udhar sales that are NOT fully paid yet
-      return (sale.sale_type === 'Advance' || sale.sale_type === 'Udhar') && sale.status !== 'Paid';
+    if (!matchesType) return false;
+
+    // 2. Search Query
+    if (searchQuery) {
+      const query = searchQuery.toLowerCase();
+      const nameMatch = (sale.customer_name || '').toLowerCase().includes(query);
+      const mobileMatch = (sale.customer_mobile || '').toLowerCase().includes(query);
+      const billMatch = (sale.bill_number || `SALE-${sale.id}`).toLowerCase().includes(query);
+      if (!nameMatch && !mobileMatch && !billMatch) return false;
     }
+
+    // 3. Date Range
+    if (startDate && new Date(sale.date) < new Date(startDate)) return false;
+    if (endDate && new Date(sale.date) > new Date(endDate)) return false;
+
     return true;
   });
+
+  const totalSalesAmount = filteredHistory.reduce((sum, sale) => sum + sale.total_amount, 0);
+  const totalPaidAmount = filteredHistory.reduce((sum, sale) => sum + (sale.status === 'Paid' ? sale.total_amount : sale.paid_amount), 0);
+  const totalBalanceDue = filteredHistory.reduce((sum, sale) => sum + (sale.status === 'Paid' ? 0 : sale.balance_amount), 0);
+
+  const generateReportPDF = () => {
+    const doc = new jsPDF();
+    const shopName = shopId === 'usman' ? 'Usman Carpet & Qaleen Center' : 'Hanif Carpet Premium Outlet';
+    
+    // Header
+    doc.setFillColor(184, 134, 11);
+    doc.rect(0, 0, 210, 40, 'F');
+    doc.setFontSize(24);
+    doc.setTextColor(255);
+    doc.setFont('helvetica', 'bold');
+    doc.text(shopName.toUpperCase(), 14, 25);
+    doc.setFontSize(10);
+    doc.text('SALES HISTORY REPORT', 14, 32);
+
+    doc.setTextColor(0);
+    doc.setFontSize(12);
+    const dateText = (startDate && endDate) ? `${startDate} to ${endDate}` : (startDate ? `From ${startDate}` : (endDate ? `Until ${endDate}` : 'All Time'));
+    doc.text(`Duration: ${dateText}`, 14, 55);
+    if (historyFilter !== 'All') {
+      doc.text(`Filter: ${historyFilter}`, 14, 62);
+    }
+
+    const tableData = filteredHistory.slice().reverse().map((sale, index) => {
+      const paid = sale.status === 'Paid' ? sale.total_amount : sale.paid_amount;
+      const bal = sale.status === 'Paid' ? 0 : sale.balance_amount;
+      return [
+        index + 1,
+        sale.bill_number || `#SALE-${sale.id}`,
+        sale.date,
+        sale.customer_name,
+        sale.sale_type,
+        `PKR ${paid.toLocaleString()}`,
+        `PKR ${bal.toLocaleString()}`,
+        `PKR ${sale.total_amount.toLocaleString()}`
+      ];
+    });
+
+    autoTable(doc, {
+      startY: 70,
+      head: [['#', 'Bill No', 'Date', 'Customer', 'Type', 'Received', 'Balance', 'Total']],
+      body: tableData,
+      theme: 'striped',
+      headStyles: { fillColor: [184, 134, 11] },
+      styles: { fontSize: 8 }
+    });
+
+    // Summary
+    const finalY = doc.lastAutoTable.finalY + 15;
+    doc.setFontSize(10);
+    doc.setFont('helvetica', 'bold');
+    doc.text('REPORT SUMMARY', 14, finalY);
+    doc.setFont('helvetica', 'normal');
+    doc.text(`Total Gross Sales: PKR ${totalSalesAmount.toLocaleString()}`, 14, finalY + 8);
+    doc.text(`Total Payment Received: PKR ${totalPaidAmount.toLocaleString()}`, 14, finalY + 15);
+    doc.text(`Total Outstanding Balance: PKR ${totalBalanceDue.toLocaleString()}`, 14, finalY + 22);
+
+    doc.save(`Sales_Report_${shopId}_${new Date().toLocaleDateString('en-CA')}.pdf`);
+  };
 
   return (
     <div className="space-y-8 max-w-[1400px] mx-auto pb-20">
@@ -166,7 +274,7 @@ export default function HistoryModule() {
         initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }}
         className="glass rounded-[3rem] p-10 border border-white/5"
       >
-         <div className="flex items-center justify-between mb-10">
+         <div className="flex flex-col md:flex-row items-center justify-between mb-10 gap-6">
            <div className="flex items-center gap-4">
              <div className="w-12 h-12 rounded-2xl bg-primary/10 flex items-center justify-center">
                 <HistoryIcon size={24} className="bronze-text" />
@@ -174,27 +282,94 @@ export default function HistoryModule() {
              <h3 className="text-2xl font-black uppercase italic tracking-tight">Sale <span className="bronze-text">History Archive</span></h3>
            </div>
            
-           <div className="flex bg-white/5 p-1 rounded-2xl border border-white/5 font-black text-[9px] uppercase tracking-widest overflow-hidden">
-             {['All', 'Cash', 'Credit'].map(filterOption => (
-               <button 
-                 key={filterOption}
-                 onClick={() => setHistoryFilter(filterOption)}
-                 className={`px-6 py-2 rounded-xl transition-all ${historyFilter === filterOption ? 'bg-primary text-black shadow-lg shadow-primary/20' : 'text-zinc-500 hover:text-white'}`}
-               >
-                 {filterOption === 'Credit' ? 'Advance/Udhar' : filterOption}
-               </button>
-             ))}
+           <div className="flex flex-wrap items-center gap-4 w-full md:w-auto overflow-hidden justify-end">
+             {/* Search Field */}
+             <div className="relative flex-grow md:flex-grow-0">
+               <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-zinc-500" size={14} />
+               <input 
+                 type="text" 
+                 placeholder="Search by Bill, Name..."
+                 className="w-full md:w-48 bg-black/20 border border-white/5 rounded-xl pl-9 pr-3 py-2 text-[10px] font-black outline-none focus:border-primary transition-all text-white placeholder-zinc-600"
+                 value={searchQuery}
+                 onChange={(e) => setSearchQuery(e.target.value)}
+               />
+             </div>
+
+             {/* Date Filters */}
+             <div className="flex items-center gap-2">
+               <input 
+                 type="date"
+                 className="bg-black/20 border border-white/5 rounded-xl px-3 py-2 text-[10px] font-black outline-none focus:border-primary transition-all text-white min-w-[110px]"
+                 value={startDate}
+                 onChange={(e) => setStartDate(e.target.value)}
+                 title="Start Date"
+               />
+               <span className="text-zinc-600 font-black text-[10px]">TO</span>
+               <input 
+                 type="date"
+                 className="bg-black/20 border border-white/5 rounded-xl px-3 py-2 text-[10px] font-black outline-none focus:border-primary transition-all text-white min-w-[110px]"
+                 value={endDate}
+                 onChange={(e) => setEndDate(e.target.value)}
+                 title="End Date"
+               />
+               {(startDate || endDate) && (
+                 <button 
+                   onClick={() => { setStartDate(''); setEndDate(''); }}
+                   className="ml-2 text-zinc-500 hover:text-white transition-all text-[9px] font-black uppercase tracking-widest bg-white/5 px-3 py-2 rounded-xl"
+                 >
+                   Clear
+                 </button>
+               )}
+             </div>
+
+             <div className="flex bg-white/5 p-1 rounded-2xl border border-white/5 font-black text-[9px] uppercase tracking-widest hidden lg:flex">
+               {['All', 'Cash', 'Credit'].map(filterOption => (
+                 <button 
+                   key={filterOption}
+                   onClick={() => setHistoryFilter(filterOption)}
+                   className={`px-4 py-2 rounded-xl transition-all ${historyFilter === filterOption ? 'bg-primary text-black shadow-lg shadow-primary/20' : 'text-zinc-500 hover:text-white'}`}
+                 >
+                   {filterOption === 'Credit' ? 'Adv/Udhar' : filterOption}
+                 </button>
+               ))}
+             </div>
            </div>
+         </div>
+
+         {/* Totals Summary */}
+         <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-8">
+           <div className="bg-black/20 p-6 rounded-2xl border border-white/5 flex flex-col justify-center">
+             <p className="text-[10px] font-black uppercase tracking-widest text-zinc-500 mb-1">Gross Sales</p>
+             <p className="text-2xl font-black italic bronze-text">PKR {totalSalesAmount.toLocaleString()}</p>
+           </div>
+           <div className="bg-black/20 p-6 rounded-2xl border border-white/5 flex flex-col justify-center">
+             <p className="text-[10px] font-black uppercase tracking-widest text-zinc-500 mb-1">Total Received</p>
+             <p className="text-2xl font-black italic text-emerald-500">PKR {totalPaidAmount.toLocaleString()}</p>
+           </div>
+           <div className="bg-black/20 p-6 rounded-2xl border border-white/5 flex flex-col justify-center">
+             <p className="text-[10px] font-black uppercase tracking-widest text-zinc-500 mb-1">Outstanding</p>
+             <p className="text-2xl font-black italic text-red-500">PKR {totalBalanceDue.toLocaleString()}</p>
+           </div>
+           <button 
+             onClick={generateReportPDF}
+             className="bg-primary/10 hover:bg-primary border border-primary/20 hover:border-primary text-primary hover:text-black transition-all p-4 rounded-2xl flex flex-col items-center justify-center gap-2 group shadow-xl"
+           >
+             <Printer size={24} className="group-hover:scale-110 transition-transform" />
+             <span className="text-[10px] font-black uppercase tracking-widest">Generate PDF Report</span>
+           </button>
          </div>
 
          <div className="space-y-4">
            {filteredHistory.slice().reverse().map((sale) => (
-             <div key={sale.id} className="p-8 rounded-[2rem] bg-white/[0.02] border border-white/5 hover:border-primary/20 transition-all group">
-               <div className="flex flex-wrap items-center justify-between gap-6">
+             <div key={sale.id} className="p-8 rounded-[2rem] bg-white/[0.02] border border-white/5 hover:border-primary/20 transition-all group mb-4">
+               <div 
+                 className="flex flex-wrap items-center justify-between gap-6 cursor-pointer"
+                 onClick={() => setExpandedSaleId(expandedSaleId === sale.id ? null : sale.id)}
+               >
                  <div className="flex items-center gap-6">
-                   <div className="w-14 h-14 rounded-2xl bg-black/20 flex flex-col items-center justify-center">
-                      <span className="text-[8px] font-black uppercase text-zinc-500 leading-none">ID</span>
-                      <span className="text-sm font-black text-primary italic">#{sale.id}</span>
+                   <div className="w-14 h-14 rounded-2xl bg-black/20 flex flex-col items-center justify-center border border-white/5 shadow-inner">
+                      <span className="text-[7px] font-black uppercase text-zinc-500 leading-none mb-1 text-center px-1">BILL&nbsp;NO</span>
+                      <span className="text-[10px] font-black text-primary italic text-center px-1 break-all line-clamp-1">{sale.bill_number || `SALE-${sale.id}`}</span>
                    </div>
                    <div>
                      <h5 className="font-black uppercase tracking-tight text-lg">{sale.customer_name}</h5>
@@ -206,7 +381,7 @@ export default function HistoryModule() {
                    </div>
                  </div>
 
-                 <div className="flex items-center gap-12">
+                 <div className="flex items-center gap-12" onClick={e => e.stopPropagation()}>
                     {sale.status !== 'Paid' && (
                       <div className="flex items-center gap-3 bg-white/5 p-2 rounded-2xl border border-white/5">
                         <div className="relative">
@@ -214,7 +389,7 @@ export default function HistoryModule() {
                           <input 
                             type="number"
                             placeholder="Amount"
-                            className="w-24 bg-black/20 border border-white/5 rounded-xl pl-8 pr-3 py-2 text-[10px] font-black outline-none focus:border-primary transition-all"
+                            className="w-24 bg-black/20 border border-white/5 rounded-xl pl-8 pr-3 py-2 text-[10px] font-black outline-none focus:border-primary transition-all text-white"
                             value={paymentInputs[sale.id] || ''}
                             onChange={(e) => setPaymentInputs({...paymentInputs, [sale.id]: e.target.value})}
                           />
@@ -229,7 +404,7 @@ export default function HistoryModule() {
                       </div>
                     )}
 
-                    <div className="text-right">
+                    <div className="text-right hidden sm:block">
                       <p className="text-[9px] font-black uppercase tracking-widest text-zinc-600 mb-1">
                         {sale.status === 'Paid' ? 'Total Amount' : 'Remaining Balance'}
                       </p>
@@ -243,7 +418,7 @@ export default function HistoryModule() {
                       )}
                     </div>
                     
-                    <div className="text-right border-l border-white/5 pl-12 min-w-[150px]">
+                    <div className="text-right border-l border-white/5 pl-6 sm:pl-12 min-w-[100px] sm:min-w-[150px]">
                       <span className={`px-4 py-2 rounded-xl text-[9px] font-black uppercase tracking-[0.2em] ${sale.status === 'Paid' ? 'bg-emerald-500/10 text-emerald-500' : sale.status === 'Partial' ? 'bg-amber-500/10 text-amber-500' : 'bg-red-500/10 text-red-500'}`}>
                         {sale.status}
                       </span>
@@ -252,16 +427,80 @@ export default function HistoryModule() {
 
                     <button 
                       onClick={() => generateInvoice(sale)}
-                      className="w-12 h-12 rounded-2xl bg-white/5 group-hover:bg-primary group-hover:text-black transition-all flex items-center justify-center text-zinc-500 shadow-lg border border-white/5"
+                      className="w-12 h-12 rounded-2xl bg-white/5 hover:bg-primary hover:text-black transition-all flex items-center justify-center text-zinc-500 shadow-lg border border-white/5"
                     >
                       <Printer size={20} />
                     </button>
                   </div>
                </div>
+               
+               {/* Expanded Details View */}
+               <AnimatePresence>
+                 {expandedSaleId === sale.id && (
+                   <motion.div 
+                     initial={{ opacity: 0, height: 0 }}
+                     animate={{ opacity: 1, height: 'auto' }}
+                     exit={{ opacity: 0, height: 0 }}
+                     className="mt-6 pt-6 border-t border-white/5 overflow-hidden"
+                   >
+                     <div className="bg-black/20 rounded-2xl p-6 border border-white/5">
+                        <div className="flex items-center gap-3 mb-4">
+                           <Package size={16} className="bronze-text" />
+                           <h4 className="text-sm font-black uppercase italic tracking-widest text-zinc-400">Order Items</h4>
+                        </div>
+                        <div className="space-y-2">
+                           {sale.items?.map((item, idx) => (
+                              <div key={idx} className="flex flex-col sm:flex-row sm:items-center justify-between p-4 rounded-xl bg-white/5 border border-white/5 text-[10px] font-black uppercase tracking-widest gap-4">
+                                 <div className="flex items-center gap-4">
+                                     <span className="text-zinc-500 w-4">#{idx + 1}</span>
+                                     <span className="text-white text-xs">Roll: {item.roll_id_str || item.roll || 'N/A'}</span>
+                                 </div>
+                                 <div className="flex flex-wrap items-center gap-6 text-zinc-400 justify-end flex-grow">
+                                     <span className="bg-black/30 px-3 py-1 rounded-lg">Dims: {(item.width || 0) > 1 ? `${item.length} ft x ${item.width} ft` : `${item.length} Pcs`}</span>
+                                     <span>Price: PKR {Number(item.unit_price || 0).toLocaleString()}</span>
+                                     <span className="text-emerald-500 font-black text-xs">Subtotal: PKR {Number(item.subtotal || 0).toLocaleString()}</span>
+                                 </div>
+                              </div>
+                           ))}
+                           {(!sale.items || sale.items.length === 0) && (
+                               <p className="text-[10px] font-black text-zinc-500 uppercase tracking-widest italic">No items found for this record</p>
+                           )}
+                        </div>
+                        
+                         {sale.payment_history && sale.payment_history.length > 0 && (
+                           <div className="mt-6 border-t border-white/5 pt-6">
+                             <div className="flex items-center gap-3 mb-4">
+                                <Banknote size={16} className="text-emerald-500" />
+                                <h4 className="text-sm font-black uppercase italic tracking-widest text-zinc-400">Payment Timeline</h4>
+                             </div>
+                             <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-4">
+                                {sale.payment_history.map((payment, idx) => (
+                                   <div key={idx} className="p-4 rounded-xl bg-white/5 border border-white/5 flex flex-col gap-2 hover:border-emerald-500/30 transition-all">
+                                      <div className="flex justify-between items-center">
+                                        <span className="text-[10px] font-black text-zinc-500 uppercase tracking-widest">Deposit #{idx + 1}</span>
+                                        <span className="text-[10px] font-bold text-zinc-400">{payment.date}</span>
+                                      </div>
+                                      <p className="text-lg font-black italic text-emerald-500 tracking-tight">PKR {Number(payment.amount).toLocaleString()}</p>
+                                   </div>
+                                ))}
+                             </div>
+                           </div>
+                         )}
+
+                        {sale.remarks && sale.remarks !== 'No remarks' && (
+                          <div className="mt-4 p-4 rounded-xl bg-white/5 border border-white/5">
+                             <p className="text-[10px] font-bold text-zinc-500 tracking-widest uppercase mb-2">Remarks / Notes</p>
+                             <p className="text-sm font-medium text-zinc-300 capitalize">{sale.remarks}</p>
+                          </div>
+                        )}
+                     </div>
+                   </motion.div>
+                 )}
+               </AnimatePresence>
              </div>
            ))}
            {filteredHistory.length === 0 && (
-             <div className="py-40 text-center text-zinc-700 italic font-black uppercase tracking-[0.5em]">No transactions recorded in history archive</div>
+             <div className="py-40 text-center text-zinc-700 italic font-black uppercase tracking-[0.5em]">No transactions found</div>
            )}
          </div>
       </motion.div>

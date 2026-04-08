@@ -56,6 +56,14 @@ class SaleViewSet(viewsets.ModelViewSet):
             if amount <= 0:
                 return Response({'error': 'Amount must be greater than zero'}, status=status.HTTP_400_BAD_REQUEST)
                 
+            from datetime import date
+            from .models import SalePaymentHistory
+            SalePaymentHistory.objects.create(
+                sale=sale,
+                amount=amount,
+                date=date.today().isoformat()
+            )
+            
             sale.paid_amount = round(sale.paid_amount + amount, 2)
             sale.balance_amount = round(max(0, sale.total_amount - sale.paid_amount), 2)
             

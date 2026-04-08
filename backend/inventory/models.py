@@ -115,6 +115,7 @@ class Sale(models.Model):
     
     customer_name = models.CharField(max_length=200, default='Walk-in Customer')
     customer_mobile = models.CharField(max_length=20, null=True, blank=True)
+    bill_number = models.CharField(max_length=50, null=True, blank=True, unique=True)
     total_amount = models.FloatField(default=0)
     paid_amount = models.FloatField(default=0)
     balance_amount = models.FloatField(default=0)
@@ -125,7 +126,14 @@ class Sale(models.Model):
     created_at = models.DateTimeField(auto_now_add=True)
 
     def __str__(self):
-        return f"Sale {self.id} - {self.customer_name} ({self.sale_type})"
+        return f"Sale {self.bill_number or self.id} - {self.customer_name} ({self.sale_type})"
+
+    def save(self, *args, **kwargs):
+        is_new = self.pk is None
+        super().save(*args, **kwargs)
+        if is_new and not self.bill_number:
+            self.bill_number = f"BILL-{1000 + self.id}"
+            super().save(update_fields=['bill_number'])
 
 class SaleItem(models.Model):
     sale = models.ForeignKey(Sale, related_name='items', on_delete=models.CASCADE)
@@ -137,3 +145,12 @@ class SaleItem(models.Model):
 
     def __str__(self):
         return f"Item for Sale {self.sale.id}"
+
+class SalePaymentHistory(models.Model):
+    sale = models.ForeignKey(Sale, related_name='payment_history', on_delete=models.CASCADE)
+    amount = models.FloatField()
+    date = models.CharField(max_length=50)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    def __str__(self):
+        return f"Payment of {self.amount} for Sale {self.sale.id}"

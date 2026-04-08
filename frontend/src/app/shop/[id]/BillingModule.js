@@ -184,7 +184,7 @@ export default function BillingModule() {
     doc.setFontSize(14);
     doc.text('INVOICE / BILL', 14, 55);
     doc.setFontSize(10);
-    doc.text(`Invoice No: #SALE-${sale.id}`, 14, 65);
+    doc.text(`Invoice No: ${sale.bill_number || `#SALE-${sale.id}`}`, 14, 65);
     doc.text(`Date: ${sale.date}`, 14, 70);
     doc.text(`Payment Type: ${sale.sale_type}`, 14, 75);
 
@@ -223,6 +223,28 @@ export default function BillingModule() {
     doc.setFont('helvetica', 'bold');
     doc.text('Balance Due:', 140, finalY + 16);
     doc.text(`PKR ${sale.balance_amount.toLocaleString()}`, 190, finalY + 16, { align: 'right' });
+
+    if (sale.payment_history && sale.payment_history.length > 0) {
+      const paymentY = finalY + 30;
+      doc.setFontSize(12);
+      doc.setFont('helvetica', 'bold');
+      doc.setTextColor(0);
+      doc.text('PAYMENT TIMELINE', 14, paymentY);
+      
+      const paymentData = sale.payment_history.map((payment, index) => [
+        `Deposit #${index + 1}`,
+        payment.date,
+        `PKR ${Number(payment.amount).toLocaleString()}`
+      ]);
+
+      autoTable(doc, {
+        startY: paymentY + 5,
+        head: [['Ref', 'Date', 'Amount']],
+        body: paymentData,
+        theme: 'grid',
+        headStyles: { fillColor: [184, 134, 11] }
+      });
+    }
 
     doc.setFontSize(8);
     doc.setFont('helvetica', 'italic');
