@@ -273,6 +273,7 @@ export default function HistoryModule() {
     const tableData = filteredHistory.slice().reverse().map((sale, index) => {
       const paid = sale.status === 'Paid' ? sale.total_amount : sale.paid_amount;
       const bal = sale.status === 'Paid' ? 0 : sale.balance_amount;
+      const addStock = (sale.additional_stocks || []).reduce((s, st) => s + parseFloat(st.total_payment || 0), 0);
       return [
         index + 1,
         sale.bill_number || `#SALE-${sale.id}`,
@@ -281,7 +282,7 @@ export default function HistoryModule() {
         sale.sale_type,
         `PKR ${paid.toLocaleString()}`,
         `PKR ${bal.toLocaleString()}`,
-        `PKR ${sale.total_amount.toLocaleString()}`
+        `PKR ${(sale.total_amount + addStock).toLocaleString()}`
       ];
     });
 
@@ -294,15 +295,48 @@ export default function HistoryModule() {
       styles: { fontSize: 8 }
     });
 
-    // Summary
+    // --- Report Summary ---
     const finalY = doc.lastAutoTable.finalY + 15;
-    doc.setFontSize(10);
+
+    // Total Sales = stock + additional stock combined
+    const totalGrossWithAdditional = filteredHistory.reduce((sum, sale) => {
+      const addStock = (sale.additional_stocks || []).reduce((s, st) => s + parseFloat(st.total_payment || 0), 0);
+      return sum + sale.total_amount + addStock;
+    }, 0);
+
+    doc.setFontSize(11);
     doc.setFont('helvetica', 'bold');
+    doc.setTextColor(0);
     doc.text('REPORT SUMMARY', 14, finalY);
+
+    // Draw summary box
+    doc.setDrawColor(184, 134, 11);
+    doc.setLineWidth(0.5);
+    doc.rect(14, finalY + 5, 182, totalAdditionalStockCost > 0 ? 38 : 22);
+
     doc.setFont('helvetica', 'normal');
-    doc.text(`Total Gross Sales: PKR ${totalSalesAmount.toLocaleString()}`, 14, finalY + 8);
-    doc.text(`Total Payment Received: PKR ${totalPaidAmount.toLocaleString()}`, 14, finalY + 15);
-    doc.text(`Total Outstanding Balance: PKR ${totalBalanceDue.toLocaleString()}`, 14, finalY + 22);
+    doc.setFontSize(10);
+    doc.text('Total Sales (Stock + Additional Stock):', 20, finalY + 14);
+    doc.setFont('helvetica', 'bold');
+    doc.text(`PKR ${totalGrossWithAdditional.toLocaleString()}`, 192, finalY + 14, { align: 'right' });
+
+    if (totalAdditionalStockCost > 0) {
+      doc.setFont('helvetica', 'normal');
+      doc.setTextColor(150, 100, 0);
+      doc.text('Less: Additional Stock Cost:', 20, finalY + 23);
+      doc.setFont('helvetica', 'bold');
+      doc.text(`- PKR ${totalAdditionalStockCost.toLocaleString()}`, 192, finalY + 23, { align: 'right' });
+
+      // Net Sales line
+      doc.setDrawColor(0, 150, 80);
+      doc.setLineWidth(0.3);
+      doc.line(20, finalY + 27, 192, finalY + 27);
+      doc.setTextColor(0, 120, 60);
+      doc.setFontSize(11);
+      doc.text('Net Sales:', 20, finalY + 34);
+      doc.setFont('helvetica', 'bold');
+      doc.text(`PKR ${netSalesAmount.toLocaleString()}`, 192, finalY + 34, { align: 'right' });
+    }
 
     doc.save(`Sales_Report_${shopId}_${new Date().toLocaleDateString('en-CA')}.pdf`);
   };
@@ -385,22 +419,18 @@ export default function HistoryModule() {
          </div>
 
          {/* Totals Summary */}
-         <div className="grid grid-cols-2 md:grid-cols-5 gap-4 mb-8">
+         <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-8">
            <div className="bg-black/20 p-6 rounded-2xl border border-white/5 flex flex-col justify-center">
              <p className="text-[10px] font-black uppercase tracking-widest text-zinc-500 mb-1">Gross Sales</p>
-             <p className="text-xl font-black italic bronze-text">PKR {totalSalesAmount.toLocaleString()}</p>
+             <p className="text-2xl font-black italic bronze-text">PKR {totalSalesAmount.toLocaleString()}</p>
            </div>
-           <div className="bg-black/20 p-6 rounded-2xl border border-amber-500/10 flex flex-col justify-center">
-             <p className="text-[10px] font-black uppercase tracking-widest text-zinc-500 mb-1">Additional Stock Cost</p>
-             <p className="text-xl font-black italic text-amber-400">- PKR {totalAdditionalStockCost.toLocaleString()}</p>
-           </div>
-           <div className="bg-black/20 p-6 rounded-2xl border border-emerald-500/20 flex flex-col justify-center">
-             <p className="text-[10px] font-black uppercase tracking-widest text-zinc-500 mb-1">Net Sales</p>
-             <p className="text-xl font-black italic text-emerald-400">PKR {netSalesAmount.toLocaleString()}</p>
+           <div className="bg-black/20 p-6 rounded-2xl border border-white/5 flex flex-col justify-center">
+             <p className="text-[10px] font-black uppercase tracking-widest text-zinc-500 mb-1">Total Received</p>
+             <p className="text-2xl font-black italic text-emerald-500">PKR {totalPaidAmount.toLocaleString()}</p>
            </div>
            <div className="bg-black/20 p-6 rounded-2xl border border-white/5 flex flex-col justify-center">
              <p className="text-[10px] font-black uppercase tracking-widest text-zinc-500 mb-1">Outstanding</p>
-             <p className="text-xl font-black italic text-red-500">PKR {totalBalanceDue.toLocaleString()}</p>
+             <p className="text-2xl font-black italic text-red-500">PKR {totalBalanceDue.toLocaleString()}</p>
            </div>
            <button 
              onClick={generateReportPDF}
