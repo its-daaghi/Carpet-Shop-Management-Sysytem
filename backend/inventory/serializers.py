@@ -53,7 +53,10 @@ class FactorySerializer(serializers.ModelSerializer):
         fields = '__all__'
 
 class SaleItemSerializer(serializers.ModelSerializer):
-    roll_id_str = serializers.CharField(source='roll.roll_id', read_only=True)
+    roll_id_str = serializers.CharField(source='roll.roll_id', read_only=True, default='')
+    roll_product_type = serializers.CharField(source='roll.product_type', read_only=True, default='')
+    roll_design = serializers.CharField(source='roll.design', read_only=True, default='')
+    roll_color = serializers.CharField(source='roll.color', read_only=True, default='')
 
     class Meta:
         model = SaleItem

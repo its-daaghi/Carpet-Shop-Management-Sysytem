@@ -221,7 +221,7 @@ export default function BillingModule() {
     }
   };
 
-  // generateInvoice — includes additional stock
+  // generateInvoice — single unified table for all items
   const generateInvoice = (sale, extraStocks) => {
     if (!sale) return;
     const doc = new jsPDF();
@@ -229,7 +229,7 @@ export default function BillingModule() {
     const stockList = extraStocks || additionalStocks;
     const additionalTotal = stockList.reduce((sum, s) => sum + parseFloat(s.total_payment || 0), 0);
     const grandTotal = (sale.total_amount || 0) + additionalTotal;
-    
+
     // Header
     doc.setFillColor(184, 134, 11);
     doc.rect(0, 0, 210, 40, 'F');
@@ -254,98 +254,86 @@ export default function BillingModule() {
     doc.setFont('helvetica', 'normal');
     doc.text(sale.customer_mobile || '', 120, 75);
 
-    // Main Items Table
-    const tableData = sale.items.map((item, index) => {
+    // Build unified table — stock items + additional stock items merged
+    const tableRows = [];
+
+    // Regular stock items
+    sale.items.forEach((item, index) => {
+      const type = item.roll_product_type || '';
+      const design = item.roll_design || '';
+      const color = item.roll_color || '';
       const isArea = (item.width || 0) > 1;
-      const desc = isArea ? `${item.length || 0} x ${item.width || 0} (${(item.length || 0) * (item.width || 0)} sqft)` : `${item.length || 0} Pcs`;
-      return [
+      const dims = isArea
+        ? `${item.length || 0} x ${item.width || 0} ft`
+        : `${item.length || 0} Pcs`;
+      tableRows.push([
         index + 1,
-        `Roll: ${item.roll_id_str || item.roll || ''}`,
-        desc,
-        `PKR ${Number(item.unit_price || 0).toLocaleString()}`,
+        type,
+        design,
+        color,
+        dims,
         `PKR ${Number(item.subtotal || 0).toLocaleString()}`
-      ];
+      ]);
+    });
+
+    // Additional stock items — same table, no label difference
+    stockList.forEach((s, i) => {
+      const dims = (s.length > 0 || s.width > 0)
+        ? `${s.length || 0} x ${s.width || 0} ft`
+        : '-';
+      tableRows.push([
+        sale.items.length + i + 1,
+        s.stock_type || '',
+        s.design || '',
+        s.color || '',
+        dims,
+        `PKR ${Number(s.total_payment || 0).toLocaleString()}`
+      ]);
     });
 
     autoTable(doc, {
       startY: 90,
-      head: [['#', 'Description', 'Qty/Dimensions', 'Unit Price', 'Subtotal']],
-      body: tableData,
+      head: [['#', 'Type', 'Design', 'Color', 'Dimensions', 'Amount']],
+      body: tableRows,
       theme: 'striped',
-      headStyles: { fillColor: [184, 134, 11] }
+      headStyles: { fillColor: [184, 134, 11] },
+      styles: { fontSize: 9 },
+      columnStyles: { 5: { halign: 'right' } }
     });
 
-    let currentY = doc.lastAutoTable.finalY + 10;
+    const finalY = doc.lastAutoTable.finalY + 10;
 
-    // Additional Stock Table (if any)
-    if (stockList.length > 0) {
-      doc.setFontSize(11);
-      doc.setFont('helvetica', 'bold');
-      doc.text('ADDITIONAL STOCK', 14, currentY);
-      currentY += 5;
-
-      const addStockData = stockList.map((s, idx) => [
-        idx + 1,
-        s.stock_type || '',
-        s.design || '',
-        s.color || '',
-        s.length && s.width ? `${s.length} x ${s.width}` : '-',
-        `PKR ${Number(s.total_payment || 0).toLocaleString()}`
-      ]);
-
-      autoTable(doc, {
-        startY: currentY,
-        head: [['#', 'Type', 'Design', 'Color', 'L x W', 'Payment']],
-        body: addStockData,
-        theme: 'striped',
-        headStyles: { fillColor: [100, 80, 20] },
-        styles: { fontSize: 9 }
-      });
-
-      currentY = doc.lastAutoTable.finalY + 10;
-    }
-
-    // Summary
     doc.setFont('helvetica', 'normal');
     doc.setFontSize(10);
-    doc.text('Stock Amount:', 130, currentY);
-    doc.text(`PKR ${Number(sale.total_amount).toLocaleString()}`, 196, currentY, { align: 'right' });
-
-    if (stockList.length > 0) {
-      doc.text('Additional Stock:', 130, currentY + 7);
-      doc.text(`PKR ${Number(additionalTotal).toLocaleString()}`, 196, currentY + 7, { align: 'right' });
-      currentY += 7;
-    }
-
-    doc.text('Paid Amount:', 130, currentY + 7);
-    doc.text(`PKR ${Number(sale.paid_amount).toLocaleString()}`, 196, currentY + 7, { align: 'right' });
+    doc.text('Paid Amount:', 130, finalY);
+    doc.text(`PKR ${Number(sale.paid_amount).toLocaleString()}`, 196, finalY, { align: 'right' });
 
     doc.setFontSize(12);
     doc.setFont('helvetica', 'bold');
-    doc.text('Grand Total:', 130, currentY + 16);
-    doc.text(`PKR ${Number(grandTotal).toLocaleString()}`, 196, currentY + 16, { align: 'right' });
-    doc.text('Balance Due:', 130, currentY + 25);
-    doc.text(`PKR ${Number(Math.max(0, grandTotal - sale.paid_amount)).toLocaleString()}`, 196, currentY + 25, { align: 'right' });
+    doc.text('Grand Total:', 130, finalY + 10);
+    doc.text(`PKR ${Number(grandTotal).toLocaleString()}`, 196, finalY + 10, { align: 'right' });
+    doc.text('Balance Due:', 130, finalY + 20);
+    doc.text(`PKR ${Number(Math.max(0, grandTotal - sale.paid_amount)).toLocaleString()}`, 196, finalY + 20, { align: 'right' });
 
-    // Payment History
+    // Payment History (if any)
     if (sale.payment_history && sale.payment_history.length > 0) {
-      const paymentY = currentY + 40;
-      doc.setFontSize(12);
+      const paymentY = finalY + 35;
+      doc.setFontSize(11);
       doc.setFont('helvetica', 'bold');
+      doc.setTextColor(0);
       doc.text('PAYMENT TIMELINE', 14, paymentY);
-      
       const paymentData = sale.payment_history.map((payment, index) => [
         `Deposit #${index + 1}`,
         payment.date,
         `PKR ${Number(payment.amount).toLocaleString()}`
       ]);
-
       autoTable(doc, {
         startY: paymentY + 5,
         head: [['Ref', 'Date', 'Amount']],
         body: paymentData,
         theme: 'grid',
-        headStyles: { fillColor: [184, 134, 11] }
+        headStyles: { fillColor: [184, 134, 11] },
+        styles: { fontSize: 9 }
       });
     }
 
