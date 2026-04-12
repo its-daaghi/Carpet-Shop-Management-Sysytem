@@ -3,8 +3,8 @@ from rest_framework.decorators import action
 from rest_framework.response import Response
 from django.utils.decorators import method_decorator
 from django.views.decorators.csrf import csrf_exempt
-from .models import ProductType, Design, Color, Roll, Employee, SalaryPayment, Expense, Factory, FactoryPayment, Sale, SaleItem
-from .serializers import ProductTypeSerializer, DesignSerializer, ColorSerializer, RollSerializer, EmployeeSerializer, SalaryPaymentSerializer, ExpenseSerializer, FactorySerializer, FactoryPaymentSerializer, SaleSerializer, SaleItemSerializer
+from .models import ProductType, Design, Color, Roll, Employee, SalaryPayment, Expense, Factory, FactoryPayment, Sale, SaleItem, AdditionalStock
+from .serializers import ProductTypeSerializer, DesignSerializer, ColorSerializer, RollSerializer, EmployeeSerializer, SalaryPaymentSerializer, ExpenseSerializer, FactorySerializer, FactoryPaymentSerializer, SaleSerializer, SaleItemSerializer, AdditionalStockSerializer
 
 class ProductTypeViewSet(viewsets.ModelViewSet):
     queryset = ProductType.objects.all()
@@ -41,6 +41,10 @@ class FactoryViewSet(viewsets.ModelViewSet):
 class FactoryPaymentViewSet(viewsets.ModelViewSet):
     queryset = FactoryPayment.objects.all()
     serializer_class = FactoryPaymentSerializer
+
+class AdditionalStockViewSet(viewsets.ModelViewSet):
+    queryset = AdditionalStock.objects.all()
+    serializer_class = AdditionalStockSerializer
 
 class SaleViewSet(viewsets.ModelViewSet):
     queryset = Sale.objects.all()
@@ -79,6 +83,40 @@ class SaleViewSet(viewsets.ModelViewSet):
                 'balance_amount': sale.balance_amount,
                 'status': sale.status,
             })
+        except Exception as e:
+            return Response({'error': str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+    @method_decorator(csrf_exempt)
+    @action(detail=True, methods=['post'])
+    def add_additional_stock(self, request, pk=None):
+        try:
+            sale = self.get_object()
+            stock_type = request.data.get('stock_type', '').strip()
+            design = request.data.get('design', '').strip()
+            color = request.data.get('color', '').strip()
+            length = float(request.data.get('length', 0))
+            width = float(request.data.get('width', 0))
+            total_payment = float(request.data.get('total_payment', 0))
+
+            if not stock_type:
+                return Response({'error': 'Stock type is required'}, status=status.HTTP_400_BAD_REQUEST)
+            if total_payment <= 0:
+                return Response({'error': 'Total payment must be greater than zero'}, status=status.HTTP_400_BAD_REQUEST)
+
+            from datetime import date
+            additional_stock = AdditionalStock.objects.create(
+                sale=sale,
+                stock_type=stock_type,
+                design=design,
+                color=color,
+                length=length,
+                width=width,
+                total_payment=total_payment,
+                date=date.today().isoformat()
+            )
+
+            serializer = AdditionalStockSerializer(additional_stock)
+            return Response(serializer.data, status=status.HTTP_201_CREATED)
         except Exception as e:
             return Response({'error': str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 

@@ -12,7 +12,8 @@ import {
   Check,
   Banknote,
   Search,
-  Package
+  Package,
+  Layers
 } from 'lucide-react';
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
@@ -75,6 +76,9 @@ export default function HistoryModule() {
   const generateInvoice = (sale) => {
     const doc = new jsPDF();
     const shopName = shopId === 'usman' ? 'Usman Carpet & Qaleen Center' : 'Hanif Carpet Premium Outlet';
+    const stockList = sale.additional_stocks || [];
+    const additionalTotal = stockList.reduce((sum, s) => sum + parseFloat(s.total_payment || 0), 0);
+    const grandTotal = (sale.total_amount || 0) + additionalTotal;
     
     // Header
     doc.setFillColor(184, 134, 11);
@@ -125,22 +129,61 @@ export default function HistoryModule() {
       margin: { left: 14, right: 14 }
     });
 
+    let currentY = doc.lastAutoTable.finalY + 10;
+
+    // Additional Stock Section
+    if (stockList.length > 0) {
+      doc.setFontSize(11);
+      doc.setFont('helvetica', 'bold');
+      doc.text('ADDITIONAL STOCK', 14, currentY);
+      currentY += 5;
+
+      const addStockData = stockList.map((s, idx) => [
+        idx + 1,
+        s.stock_type || '',
+        s.design || '',
+        s.color || '',
+        s.length && s.width ? `${s.length} x ${s.width}` : '-',
+        `PKR ${Number(s.total_payment || 0).toLocaleString()}`
+      ]);
+
+      autoTable(doc, {
+        startY: currentY,
+        head: [['#', 'Type', 'Design', 'Color', 'L x W', 'Payment']],
+        body: addStockData,
+        theme: 'striped',
+        headStyles: { fillColor: [100, 80, 20] },
+        styles: { fontSize: 9 },
+        margin: { left: 14, right: 14 }
+      });
+
+      currentY = doc.lastAutoTable.finalY + 10;
+    }
+
     // Summary
-    const finalY = doc.lastAutoTable.finalY + 10;
     doc.setFont('helvetica', 'normal');
-    doc.text('Total Amount:', 140, finalY);
-    doc.text(`PKR ${sale.total_amount.toLocaleString()}`, 180, finalY, { align: 'right' });
-    
-    doc.text('Paid Amount:', 140, finalY + 7);
-    doc.text(`PKR ${sale.paid_amount.toLocaleString()}`, 180, finalY + 7, { align: 'right' });
-    
+    doc.setFontSize(10);
+    doc.text('Stock Amount:', 130, currentY);
+    doc.text(`PKR ${Number(sale.total_amount).toLocaleString()}`, 196, currentY, { align: 'right' });
+
+    if (stockList.length > 0) {
+      doc.text('Additional Stock:', 130, currentY + 7);
+      doc.text(`PKR ${Number(additionalTotal).toLocaleString()}`, 196, currentY + 7, { align: 'right' });
+      currentY += 7;
+    }
+
+    doc.text('Paid Amount:', 130, currentY + 7);
+    doc.text(`PKR ${Number(sale.paid_amount).toLocaleString()}`, 196, currentY + 7, { align: 'right' });
+
     doc.setFontSize(12);
     doc.setFont('helvetica', 'bold');
-    doc.text('Balance Due:', 140, finalY + 16);
-    doc.text(`PKR ${sale.balance_amount.toLocaleString()}`, 180, finalY + 16, { align: 'right' });
+    doc.text('Grand Total:', 130, currentY + 16);
+    doc.text(`PKR ${Number(grandTotal).toLocaleString()}`, 196, currentY + 16, { align: 'right' });
+    doc.text('Balance Due:', 130, currentY + 25);
+    doc.text(`PKR ${Number(Math.max(0, grandTotal - sale.paid_amount)).toLocaleString()}`, 196, currentY + 25, { align: 'right' });
 
     if (sale.payment_history && sale.payment_history.length > 0) {
-      const paymentY = finalY + 30;
+      const paymentY = currentY + 40;
       doc.setFontSize(12);
       doc.setFont('helvetica', 'bold');
       doc.setTextColor(0);
@@ -199,6 +242,11 @@ export default function HistoryModule() {
   const totalSalesAmount = filteredHistory.reduce((sum, sale) => sum + sale.total_amount, 0);
   const totalPaidAmount = filteredHistory.reduce((sum, sale) => sum + (sale.status === 'Paid' ? sale.total_amount : sale.paid_amount), 0);
   const totalBalanceDue = filteredHistory.reduce((sum, sale) => sum + (sale.status === 'Paid' ? 0 : sale.balance_amount), 0);
+  const totalAdditionalStockCost = filteredHistory.reduce((sum, sale) => {
+    const stockCost = (sale.additional_stocks || []).reduce((s, stock) => s + parseFloat(stock.total_payment || 0), 0);
+    return sum + stockCost;
+  }, 0);
+  const netSalesAmount = totalSalesAmount - totalAdditionalStockCost;
 
   const generateReportPDF = () => {
     const doc = new jsPDF();
@@ -337,18 +385,22 @@ export default function HistoryModule() {
          </div>
 
          {/* Totals Summary */}
-         <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-8">
+         <div className="grid grid-cols-2 md:grid-cols-5 gap-4 mb-8">
            <div className="bg-black/20 p-6 rounded-2xl border border-white/5 flex flex-col justify-center">
              <p className="text-[10px] font-black uppercase tracking-widest text-zinc-500 mb-1">Gross Sales</p>
-             <p className="text-2xl font-black italic bronze-text">PKR {totalSalesAmount.toLocaleString()}</p>
+             <p className="text-xl font-black italic bronze-text">PKR {totalSalesAmount.toLocaleString()}</p>
            </div>
-           <div className="bg-black/20 p-6 rounded-2xl border border-white/5 flex flex-col justify-center">
-             <p className="text-[10px] font-black uppercase tracking-widest text-zinc-500 mb-1">Total Received</p>
-             <p className="text-2xl font-black italic text-emerald-500">PKR {totalPaidAmount.toLocaleString()}</p>
+           <div className="bg-black/20 p-6 rounded-2xl border border-amber-500/10 flex flex-col justify-center">
+             <p className="text-[10px] font-black uppercase tracking-widest text-zinc-500 mb-1">Additional Stock Cost</p>
+             <p className="text-xl font-black italic text-amber-400">- PKR {totalAdditionalStockCost.toLocaleString()}</p>
+           </div>
+           <div className="bg-black/20 p-6 rounded-2xl border border-emerald-500/20 flex flex-col justify-center">
+             <p className="text-[10px] font-black uppercase tracking-widest text-zinc-500 mb-1">Net Sales</p>
+             <p className="text-xl font-black italic text-emerald-400">PKR {netSalesAmount.toLocaleString()}</p>
            </div>
            <div className="bg-black/20 p-6 rounded-2xl border border-white/5 flex flex-col justify-center">
              <p className="text-[10px] font-black uppercase tracking-widest text-zinc-500 mb-1">Outstanding</p>
-             <p className="text-2xl font-black italic text-red-500">PKR {totalBalanceDue.toLocaleString()}</p>
+             <p className="text-xl font-black italic text-red-500">PKR {totalBalanceDue.toLocaleString()}</p>
            </div>
            <button 
              onClick={generateReportPDF}
@@ -481,6 +533,37 @@ export default function HistoryModule() {
                                         <span className="text-[10px] font-bold text-zinc-400">{payment.date}</span>
                                       </div>
                                       <p className="text-lg font-black italic text-emerald-500 tracking-tight">PKR {Number(payment.amount).toLocaleString()}</p>
+                                   </div>
+                                ))}
+                             </div>
+                           </div>
+                         )}
+
+                         {/* Additional Stock Section */}
+                         {sale.additional_stocks && sale.additional_stocks.length > 0 && (
+                           <div className="mt-6 border-t border-amber-500/10 pt-6">
+                             <div className="flex items-center gap-3 mb-4">
+                                <Layers size={16} className="text-amber-400" />
+                                <h4 className="text-sm font-black uppercase italic tracking-widest text-zinc-400">Additional Stock</h4>
+                                <span className="ml-auto text-[10px] font-black text-amber-400 bg-amber-500/10 px-3 py-1 rounded-lg border border-amber-500/20">
+                                  Cost: PKR {(sale.additional_stocks || []).reduce((s, st) => s + parseFloat(st.total_payment || 0), 0).toLocaleString()}
+                                </span>
+                             </div>
+                             <div className="space-y-2">
+                                {sale.additional_stocks.map((stock, idx) => (
+                                   <div key={idx} className="flex flex-col sm:flex-row sm:items-center justify-between p-4 rounded-xl bg-amber-500/5 border border-amber-500/10 text-[10px] font-black uppercase tracking-widest gap-3 hover:border-amber-500/30 transition-all">
+                                      <div className="flex items-center gap-4">
+                                         <span className="text-zinc-500 w-4">#{idx + 1}</span>
+                                         <div>
+                                           <span className="text-amber-400 text-xs">{stock.stock_type}</span>
+                                           <p className="text-zinc-500 text-[9px] mt-0.5 normal-case font-bold tracking-normal">
+                                             {stock.design && <span>{stock.design}</span>}
+                                             {stock.color && <span> • {stock.color}</span>}
+                                             {stock.length > 0 && stock.width > 0 && <span> • {stock.length} x {stock.width}</span>}
+                                           </p>
+                                         </div>
+                                      </div>
+                                      <span className="text-amber-400 font-black text-sm">PKR {Number(stock.total_payment).toLocaleString()}</span>
                                    </div>
                                 ))}
                              </div>

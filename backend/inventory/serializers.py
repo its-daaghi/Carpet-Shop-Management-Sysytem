@@ -1,5 +1,5 @@
 from rest_framework import serializers
-from .models import ProductType, Design, Color, Roll, Employee, SalaryPayment, Expense, Factory, FactoryPayment, Sale, SaleItem, SalePaymentHistory
+from .models import ProductType, Design, Color, Roll, Employee, SalaryPayment, Expense, Factory, FactoryPayment, Sale, SaleItem, SalePaymentHistory, AdditionalStock
 
 class ColorSerializer(serializers.ModelSerializer):
     class Meta:
@@ -66,9 +66,16 @@ class SalePaymentHistorySerializer(serializers.ModelSerializer):
         fields = '__all__'
         read_only_fields = ['sale']
 
+class AdditionalStockSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = AdditionalStock
+        fields = '__all__'
+        read_only_fields = ['sale']
+
 class SaleSerializer(serializers.ModelSerializer):
     items = SaleItemSerializer(many=True)
     payment_history = SalePaymentHistorySerializer(many=True, read_only=True)
+    additional_stocks = AdditionalStockSerializer(many=True, read_only=True)
 
     class Meta:
         model = Sale

@@ -154,3 +154,17 @@ class SalePaymentHistory(models.Model):
 
     def __str__(self):
         return f"Payment of {self.amount} for Sale {self.sale.id}"
+
+class AdditionalStock(models.Model):
+    sale = models.ForeignKey(Sale, related_name='additional_stocks', on_delete=models.CASCADE)
+    stock_type = models.CharField(max_length=200)
+    design = models.CharField(max_length=200, default='')
+    color = models.CharField(max_length=200, default='')
+    length = models.FloatField(default=0)
+    width = models.FloatField(default=0)
+    total_payment = models.FloatField()
+    date = models.CharField(max_length=50)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    def __str__(self):
+        return f"Additional Stock ({self.stock_type}) for Sale {self.sale.id} - PKR {self.total_payment}"

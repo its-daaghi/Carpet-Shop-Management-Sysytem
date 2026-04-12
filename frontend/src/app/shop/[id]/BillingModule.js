@@ -17,7 +17,9 @@ import {
   Printer,
   History as HistoryIcon,
   CheckCircle2,
-  AlertCircle
+  AlertCircle,
+  Layers,
+  X
 } from 'lucide-react';
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
@@ -44,6 +46,19 @@ export default function BillingModule() {
   const [loading, setLoading] = useState(false);
   const [lastCreatedSale, setLastCreatedSale] = useState(null);
 
+  // Additional Stock State
+  const [showAdditionalStockModal, setShowAdditionalStockModal] = useState(false);
+  const [additionalStocks, setAdditionalStocks] = useState([]);
+  const [additionalStockForm, setAdditionalStockForm] = useState({
+    stock_type: '',
+    design: '',
+    color: '',
+    length: '',
+    width: '',
+    total_payment: ''
+  });
+  const [additionalStockLoading, setAdditionalStockLoading] = useState(false);
+
   const resetForm = () => {
     setCart([]);
     setCustomer({
@@ -54,6 +69,15 @@ export default function BillingModule() {
       remarks: ''
     });
     setLastCreatedSale(null);
+    setAdditionalStocks([]);
+    setAdditionalStockForm({
+      stock_type: '',
+      design: '',
+      color: '',
+      length: '',
+      width: '',
+      total_payment: ''
+    });
   };
 
   const fetchStock = async () => {
@@ -72,8 +96,6 @@ export default function BillingModule() {
     fetchStock();
   }, [shopId]);
 
-  // History moved to HistoryModule
-
   const addToCart = (roll) => {
     if (!cart.find(c => c.id === roll.id)) {
       setCart([...cart, { 
@@ -85,16 +107,13 @@ export default function BillingModule() {
     }
   };
 
-  // Helper: is this item area-based (length × width) or piece-based (just quantity)?
   const isAreaBased = (item) => 
     (item.category === 'carpet' || item.category === 'sheet' || item.category === 'prayers' || item.category === 'cut-pieces');
 
-  // Calculate subtotal for one cart item
   const itemSubtotal = (item) => {
     if (isAreaBased(item)) {
       return (item.length || 0) * (item.width || 0) * (item.unit_price || 0);
     } else {
-      // Piece-based: 'length' field holds the quantity
       return (item.length || 0) * (item.unit_price || 0);
     }
   };
@@ -117,6 +136,9 @@ export default function BillingModule() {
 
   const totalAmount = cart.reduce((sum, item) => sum + itemSubtotal(item), 0);
   const balanceAmount = totalAmount - customer.paid_amount;
+
+  // Total additional stock payment for this sale
+  const totalAdditionalStockPayment = additionalStocks.reduce((sum, s) => sum + parseFloat(s.total_payment || 0), 0);
 
   const handleSubmitSale = async () => {
     if (cart.length === 0) return alert("Please add items to cart");
@@ -164,11 +186,52 @@ export default function BillingModule() {
     }
   };
 
-  // generateInvoice for direct printing
-  const generateInvoice = (sale) => {
+  // Handle adding additional stock
+  const handleAddAdditionalStock = async () => {
+    if (!additionalStockForm.stock_type.trim()) return alert("Please enter stock type");
+    if (!additionalStockForm.total_payment || parseFloat(additionalStockForm.total_payment) <= 0)
+      return alert("Please enter a valid total payment amount");
+    if (!lastCreatedSale) return;
+
+    setAdditionalStockLoading(true);
+    try {
+      const resp = await fetch(`${API_BASE}/sales/${lastCreatedSale.id}/add_additional_stock/?shop=${shopId}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          stock_type: additionalStockForm.stock_type,
+          design: additionalStockForm.design,
+          color: additionalStockForm.color,
+          length: parseFloat(additionalStockForm.length) || 0,
+          width: parseFloat(additionalStockForm.width) || 0,
+          total_payment: parseFloat(additionalStockForm.total_payment)
+        })
+      });
+
+      if (resp.ok) {
+        const result = await resp.json();
+        setAdditionalStocks(prev => [...prev, result]);
+        setAdditionalStockForm({ stock_type: '', design: '', color: '', length: '', width: '', total_payment: '' });
+        setShowAdditionalStockModal(false);
+      } else {
+        const data = await resp.json();
+        alert(data.error || "Failed to add additional stock");
+      }
+    } catch (err) {
+      console.error("Additional stock submission failed", err);
+    } finally {
+      setAdditionalStockLoading(false);
+    }
+  };
+
+  // generateInvoice — includes additional stock
+  const generateInvoice = (sale, extraStocks) => {
     if (!sale) return;
     const doc = new jsPDF();
     const shopName = shopId === 'usman' ? 'Usman Carpet & Qaleen Center' : 'Hanif Carpet Premium Outlet';
+    const stockList = extraStocks || additionalStocks;
+    const additionalTotal = stockList.reduce((sum, s) => sum + parseFloat(s.total_payment || 0), 0);
+    const grandTotal = (sale.total_amount || 0) + additionalTotal;
     
     // Header
     doc.setFillColor(184, 134, 11);
@@ -194,8 +257,9 @@ export default function BillingModule() {
     doc.setFont('helvetica', 'normal');
     doc.text(sale.customer_mobile || '', 120, 75);
 
+    // Main Items Table
     const tableData = sale.items.map((item, index) => {
-      const isArea = (item.width || 0) > 1; // Basic check for area items
+      const isArea = (item.width || 0) > 1;
       const desc = isArea ? `${item.length || 0} x ${item.width || 0} (${(item.length || 0) * (item.width || 0)} sqft)` : `${item.length || 0} Pcs`;
       return [
         index + 1,
@@ -214,21 +278,63 @@ export default function BillingModule() {
       headStyles: { fillColor: [184, 134, 11] }
     });
 
-    const finalY = doc.lastAutoTable.finalY + 10;
-    doc.text('Total Amount:', 140, finalY);
-    doc.text(`PKR ${sale.total_amount.toLocaleString()}`, 190, finalY, { align: 'right' });
-    doc.text('Paid Amount:', 140, finalY + 7);
-    doc.text(`PKR ${sale.paid_amount.toLocaleString()}`, 190, finalY + 7, { align: 'right' });
+    let currentY = doc.lastAutoTable.finalY + 10;
+
+    // Additional Stock Table (if any)
+    if (stockList.length > 0) {
+      doc.setFontSize(11);
+      doc.setFont('helvetica', 'bold');
+      doc.text('ADDITIONAL STOCK', 14, currentY);
+      currentY += 5;
+
+      const addStockData = stockList.map((s, idx) => [
+        idx + 1,
+        s.stock_type || '',
+        s.design || '',
+        s.color || '',
+        s.length && s.width ? `${s.length} x ${s.width}` : '-',
+        `PKR ${Number(s.total_payment || 0).toLocaleString()}`
+      ]);
+
+      autoTable(doc, {
+        startY: currentY,
+        head: [['#', 'Type', 'Design', 'Color', 'L x W', 'Payment']],
+        body: addStockData,
+        theme: 'striped',
+        headStyles: { fillColor: [100, 80, 20] },
+        styles: { fontSize: 9 }
+      });
+
+      currentY = doc.lastAutoTable.finalY + 10;
+    }
+
+    // Summary
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(10);
+    doc.text('Stock Amount:', 130, currentY);
+    doc.text(`PKR ${Number(sale.total_amount).toLocaleString()}`, 196, currentY, { align: 'right' });
+
+    if (stockList.length > 0) {
+      doc.text('Additional Stock:', 130, currentY + 7);
+      doc.text(`PKR ${Number(additionalTotal).toLocaleString()}`, 196, currentY + 7, { align: 'right' });
+      currentY += 7;
+    }
+
+    doc.text('Paid Amount:', 130, currentY + 7);
+    doc.text(`PKR ${Number(sale.paid_amount).toLocaleString()}`, 196, currentY + 7, { align: 'right' });
+
     doc.setFontSize(12);
     doc.setFont('helvetica', 'bold');
-    doc.text('Balance Due:', 140, finalY + 16);
-    doc.text(`PKR ${sale.balance_amount.toLocaleString()}`, 190, finalY + 16, { align: 'right' });
+    doc.text('Grand Total:', 130, currentY + 16);
+    doc.text(`PKR ${Number(grandTotal).toLocaleString()}`, 196, currentY + 16, { align: 'right' });
+    doc.text('Balance Due:', 130, currentY + 25);
+    doc.text(`PKR ${Number(Math.max(0, grandTotal - sale.paid_amount)).toLocaleString()}`, 196, currentY + 25, { align: 'right' });
 
+    // Payment History
     if (sale.payment_history && sale.payment_history.length > 0) {
-      const paymentY = finalY + 30;
+      const paymentY = currentY + 40;
       doc.setFontSize(12);
       doc.setFont('helvetica', 'bold');
-      doc.setTextColor(0);
       doc.text('PAYMENT TIMELINE', 14, paymentY);
       
       const paymentData = sale.payment_history.map((payment, index) => [
@@ -428,14 +534,49 @@ export default function BillingModule() {
               )}
 
               {step === 3 && (
-                <div className="glass rounded-[3rem] p-16 border border-emerald-500/20 flex flex-col items-center text-center justify-center min-h-[600px] animate-in zoom-in-95 duration-700">
+                <div className="glass rounded-[3rem] p-12 border border-emerald-500/20 flex flex-col items-center text-center justify-center min-h-[600px] animate-in zoom-in-95 duration-700">
                   <div className="w-24 h-24 rounded-[2rem] bg-emerald-500/20 flex items-center justify-center mb-8">
                     <CheckCircle2 size={48} className="text-emerald-500" strokeWidth={3} />
                   </div>
-                  <h3 className="text-5xl font-black italic uppercase tracking-tighter bronze-text mb-4">Transaction Successful</h3>
+                  <h3 className="text-4xl font-black italic uppercase tracking-tighter bronze-text mb-4">Transaction Successful</h3>
                   <p className="text-zinc-500 font-bold uppercase text-[10px] tracking-[0.4em] max-w-sm">The sale record has been securely committed to the database and inventory levels updated.</p>
                   
-                  <div className="flex flex-col sm:flex-row gap-4 mt-12 w-full max-w-lg">
+                  {/* Additional Stocks Added List */}
+                  {additionalStocks.length > 0 && (
+                    <div className="mt-8 w-full max-w-lg">
+                      <p className="text-[9px] font-black text-zinc-500 uppercase tracking-widest mb-3">Additional Stock Added</p>
+                      <div className="space-y-2">
+                        {additionalStocks.map((s, idx) => (
+                          <div key={idx} className="flex items-center justify-between p-4 rounded-2xl bg-amber-500/10 border border-amber-500/20">
+                            <div className="text-left">
+                              <p className="text-xs font-black uppercase tracking-widest text-amber-400">{s.stock_type}</p>
+                              <p className="text-[9px] text-zinc-500 uppercase tracking-widest mt-0.5">{s.design} {s.color ? `• ${s.color}` : ''} {s.length && s.width ? `• ${s.length}x${s.width}` : ''}</p>
+                            </div>
+                            <span className="text-sm font-black text-amber-400">PKR {Number(s.total_payment).toLocaleString()}</span>
+                          </div>
+                        ))}
+                        <div className="flex items-center justify-between p-3 rounded-xl bg-black/30 border border-white/5 mt-2">
+                          <span className="text-[10px] font-black text-zinc-400 uppercase tracking-widest">Total Additional</span>
+                          <span className="text-sm font-black text-amber-400">PKR {totalAdditionalStockPayment.toLocaleString()}</span>
+                        </div>
+                        <div className="flex items-center justify-between p-3 rounded-xl bg-black/30 border border-white/5">
+                          <span className="text-[10px] font-black text-zinc-400 uppercase tracking-widest">Grand Total (Invoice)</span>
+                          <span className="text-lg font-black bronze-text">PKR {(totalAmount + totalAdditionalStockPayment).toLocaleString()}</span>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Add Additional Stock button */}
+                  <button
+                    onClick={() => setShowAdditionalStockModal(true)}
+                    className="mt-8 flex items-center gap-3 px-8 py-4 rounded-2xl bg-amber-500/10 border border-amber-500/30 text-amber-400 hover:bg-amber-500/20 transition-all font-black uppercase text-[10px] tracking-widest group"
+                  >
+                    <Layers size={18} className="group-hover:scale-110 transition-transform" />
+                    Add Additional Stock
+                  </button>
+                  
+                  <div className="flex flex-col sm:flex-row gap-4 mt-6 w-full max-w-lg">
                     <button 
                       onClick={() => { resetForm(); setStep(1); }}
                       className="flex-1 bg-white/5 hover:bg-white/10 text-white rounded-2xl py-5 font-black uppercase text-[10px] tracking-widest border border-white/10 transition-all flex flex-col items-center justify-center gap-1 group"
@@ -445,7 +586,7 @@ export default function BillingModule() {
                     </button>
                     <button 
                       onClick={() => { 
-                        generateInvoice(lastCreatedSale);
+                        generateInvoice(lastCreatedSale, additionalStocks);
                         resetForm();
                         setStep(1);
                       }}
@@ -564,6 +705,143 @@ export default function BillingModule() {
               </div>
             )}
           </motion.div>
+      </AnimatePresence>
+
+      {/* Additional Stock Modal */}
+      <AnimatePresence>
+        {showAdditionalStockModal && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm"
+            onClick={(e) => e.target === e.currentTarget && setShowAdditionalStockModal(false)}
+          >
+            <motion.div
+              initial={{ scale: 0.9, opacity: 0, y: 20 }}
+              animate={{ scale: 1, opacity: 1, y: 0 }}
+              exit={{ scale: 0.9, opacity: 0, y: 20 }}
+              className="w-full max-w-lg bg-[#0f0f0f] border border-amber-500/20 rounded-[3rem] p-10 shadow-2xl"
+            >
+              <div className="flex items-center justify-between mb-8">
+                <div className="flex items-center gap-4">
+                  <div className="w-12 h-12 rounded-2xl bg-amber-500/10 flex items-center justify-center">
+                    <Layers size={22} className="text-amber-400" />
+                  </div>
+                  <div>
+                    <h3 className="text-xl font-black uppercase italic tracking-tight">Additional <span className="text-amber-400">Stock</span></h3>
+                    <p className="text-[9px] font-black text-zinc-600 uppercase tracking-widest mt-0.5">Enter stock details & payment</p>
+                  </div>
+                </div>
+                <button
+                  onClick={() => setShowAdditionalStockModal(false)}
+                  className="w-10 h-10 rounded-xl bg-white/5 hover:bg-white/10 flex items-center justify-center text-zinc-500 hover:text-white transition-all"
+                >
+                  <X size={18} />
+                </button>
+              </div>
+
+              <div className="space-y-5">
+                {/* Type */}
+                <div className="space-y-2">
+                  <label className="text-[9px] font-black text-zinc-500 uppercase tracking-widest ml-1">Type <span className="text-red-500">*</span></label>
+                  <input
+                    type="text"
+                    placeholder="e.g. Carpet, Sheet, Roll..."
+                    className="w-full bg-black/30 border border-white/10 rounded-xl px-4 py-3.5 outline-none focus:border-amber-500/50 transition-all font-bold text-sm text-white placeholder-zinc-700"
+                    value={additionalStockForm.stock_type}
+                    onChange={(e) => setAdditionalStockForm({...additionalStockForm, stock_type: e.target.value})}
+                  />
+                </div>
+
+                {/* Design & Color */}
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="space-y-2">
+                    <label className="text-[9px] font-black text-zinc-500 uppercase tracking-widest ml-1">Design</label>
+                    <input
+                      type="text"
+                      placeholder="Design name..."
+                      className="w-full bg-black/30 border border-white/10 rounded-xl px-4 py-3.5 outline-none focus:border-amber-500/50 transition-all font-bold text-sm text-white placeholder-zinc-700"
+                      value={additionalStockForm.design}
+                      onChange={(e) => setAdditionalStockForm({...additionalStockForm, design: e.target.value})}
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <label className="text-[9px] font-black text-zinc-500 uppercase tracking-widest ml-1">Color</label>
+                    <input
+                      type="text"
+                      placeholder="Color..."
+                      className="w-full bg-black/30 border border-white/10 rounded-xl px-4 py-3.5 outline-none focus:border-amber-500/50 transition-all font-bold text-sm text-white placeholder-zinc-700"
+                      value={additionalStockForm.color}
+                      onChange={(e) => setAdditionalStockForm({...additionalStockForm, color: e.target.value})}
+                    />
+                  </div>
+                </div>
+
+                {/* Length & Width */}
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="space-y-2">
+                    <label className="text-[9px] font-black text-zinc-500 uppercase tracking-widest ml-1">Length <span className="text-zinc-600">(info only)</span></label>
+                    <input
+                      type="number"
+                      placeholder="0.0"
+                      className="w-full bg-black/30 border border-white/10 rounded-xl px-4 py-3.5 outline-none focus:border-amber-500/50 transition-all font-bold text-sm text-white placeholder-zinc-700"
+                      value={additionalStockForm.length}
+                      onChange={(e) => setAdditionalStockForm({...additionalStockForm, length: e.target.value})}
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <label className="text-[9px] font-black text-zinc-500 uppercase tracking-widest ml-1">Width <span className="text-zinc-600">(info only)</span></label>
+                    <input
+                      type="number"
+                      placeholder="0.0"
+                      className="w-full bg-black/30 border border-white/10 rounded-xl px-4 py-3.5 outline-none focus:border-amber-500/50 transition-all font-bold text-sm text-white placeholder-zinc-700"
+                      value={additionalStockForm.width}
+                      onChange={(e) => setAdditionalStockForm({...additionalStockForm, width: e.target.value})}
+                    />
+                  </div>
+                </div>
+
+                {/* Total Payment */}
+                <div className="space-y-2">
+                  <label className="text-[9px] font-black text-zinc-500 uppercase tracking-widest ml-1">Total Payment (PKR) <span className="text-red-500">*</span></label>
+                  <div className="relative">
+                    <span className="absolute left-4 top-1/2 -translate-y-1/2 text-amber-400 font-black text-sm">₨</span>
+                    <input
+                      type="number"
+                      placeholder="0.00"
+                      className="w-full bg-black/30 border border-amber-500/20 rounded-xl pl-10 pr-4 py-4 outline-none focus:border-amber-500/60 transition-all font-black text-lg text-amber-400 placeholder-zinc-700"
+                      value={additionalStockForm.total_payment}
+                      onChange={(e) => setAdditionalStockForm({...additionalStockForm, total_payment: e.target.value})}
+                    />
+                  </div>
+                  <p className="text-[9px] text-zinc-600 font-bold ml-1">This amount will be added to the invoice total</p>
+                </div>
+              </div>
+
+              <div className="flex gap-4 mt-8">
+                <button
+                  onClick={() => setShowAdditionalStockModal(false)}
+                  className="flex-1 py-4 rounded-2xl bg-white/5 hover:bg-white/10 border border-white/10 font-black uppercase text-[10px] tracking-widest text-zinc-400 transition-all"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={handleAddAdditionalStock}
+                  disabled={additionalStockLoading}
+                  className="flex-1 py-4 rounded-2xl bg-amber-500 hover:bg-amber-400 text-black font-black uppercase text-[10px] tracking-widest transition-all shadow-lg shadow-amber-500/20 flex items-center justify-center gap-2 hover:scale-[1.02] active:scale-95"
+                >
+                  {additionalStockLoading ? 'Saving...' : (
+                    <>
+                      <Plus size={16} strokeWidth={3} />
+                      Add Stock
+                    </>
+                  )}
+                </button>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
       </AnimatePresence>
     </div>
   );
