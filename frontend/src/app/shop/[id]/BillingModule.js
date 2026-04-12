@@ -188,9 +188,6 @@ export default function BillingModule() {
 
   // Handle adding additional stock
   const handleAddAdditionalStock = async () => {
-    if (!additionalStockForm.stock_type.trim()) return alert("Please enter stock type");
-    if (!additionalStockForm.total_payment || parseFloat(additionalStockForm.total_payment) <= 0)
-      return alert("Please enter a valid total payment amount");
     if (!lastCreatedSale) return;
 
     setAdditionalStockLoading(true);
@@ -744,7 +741,7 @@ export default function BillingModule() {
               <div className="space-y-5">
                 {/* Type */}
                 <div className="space-y-2">
-                  <label className="text-[9px] font-black text-zinc-500 uppercase tracking-widest ml-1">Type <span className="text-red-500">*</span></label>
+                  <label className="text-[9px] font-black text-zinc-500 uppercase tracking-widest ml-1">Type</label>
                   <input
                     type="text"
                     placeholder="e.g. Carpet, Sheet, Roll..."
@@ -804,7 +801,7 @@ export default function BillingModule() {
 
                 {/* Total Payment */}
                 <div className="space-y-2">
-                  <label className="text-[9px] font-black text-zinc-500 uppercase tracking-widest ml-1">Total Payment (PKR) <span className="text-red-500">*</span></label>
+                  <label className="text-[9px] font-black text-zinc-500 uppercase tracking-widest ml-1">Total Payment (PKR)</label>
                   <div className="relative">
                     <span className="absolute left-4 top-1/2 -translate-y-1/2 text-amber-400 font-black text-sm">₨</span>
                     <input

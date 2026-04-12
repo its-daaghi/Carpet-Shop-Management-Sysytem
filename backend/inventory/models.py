@@ -157,12 +157,12 @@ class SalePaymentHistory(models.Model):
 
 class AdditionalStock(models.Model):
     sale = models.ForeignKey(Sale, related_name='additional_stocks', on_delete=models.CASCADE)
-    stock_type = models.CharField(max_length=200)
-    design = models.CharField(max_length=200, default='')
-    color = models.CharField(max_length=200, default='')
+    stock_type = models.CharField(max_length=200, default='', blank=True)
+    design = models.CharField(max_length=200, default='', blank=True)
+    color = models.CharField(max_length=200, default='', blank=True)
     length = models.FloatField(default=0)
     width = models.FloatField(default=0)
-    total_payment = models.FloatField()
+    total_payment = models.FloatField(default=0)
     date = models.CharField(max_length=50)
     created_at = models.DateTimeField(auto_now_add=True)
 

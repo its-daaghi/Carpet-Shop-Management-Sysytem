@@ -94,14 +94,9 @@ class SaleViewSet(viewsets.ModelViewSet):
             stock_type = request.data.get('stock_type', '').strip()
             design = request.data.get('design', '').strip()
             color = request.data.get('color', '').strip()
-            length = float(request.data.get('length', 0))
-            width = float(request.data.get('width', 0))
-            total_payment = float(request.data.get('total_payment', 0))
-
-            if not stock_type:
-                return Response({'error': 'Stock type is required'}, status=status.HTTP_400_BAD_REQUEST)
-            if total_payment <= 0:
-                return Response({'error': 'Total payment must be greater than zero'}, status=status.HTTP_400_BAD_REQUEST)
+            length = float(request.data.get('length', 0) or 0)
+            width = float(request.data.get('width', 0) or 0)
+            total_payment = float(request.data.get('total_payment', 0) or 0)
 
             from datetime import date
             additional_stock = AdditionalStock.objects.create(
