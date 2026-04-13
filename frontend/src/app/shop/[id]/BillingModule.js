@@ -303,17 +303,21 @@ export default function BillingModule() {
 
     const finalY = doc.lastAutoTable.finalY + 10;
 
+    const isFullyPaid = sale.sale_type === 'Cash' || sale.status === 'Paid';
+    const effectivePaid = isFullyPaid ? grandTotal : (sale.paid_amount + additionalTotal);
+    const balanceDue = Math.max(0, grandTotal - effectivePaid);
+
     doc.setFont('helvetica', 'normal');
     doc.setFontSize(10);
     doc.text('Paid Amount:', 130, finalY);
-    doc.text(`PKR ${Number(sale.paid_amount).toLocaleString()}`, 196, finalY, { align: 'right' });
+    doc.text(`PKR ${Number(effectivePaid).toLocaleString()}`, 196, finalY, { align: 'right' });
 
     doc.setFontSize(12);
     doc.setFont('helvetica', 'bold');
     doc.text('Grand Total:', 130, finalY + 10);
     doc.text(`PKR ${Number(grandTotal).toLocaleString()}`, 196, finalY + 10, { align: 'right' });
     doc.text('Balance Due:', 130, finalY + 20);
-    doc.text(`PKR ${Number(Math.max(0, grandTotal - sale.paid_amount)).toLocaleString()}`, 196, finalY + 20, { align: 'right' });
+    doc.text(`PKR ${Number(balanceDue).toLocaleString()}`, 196, finalY + 20, { align: 'right' });
 
     // Payment History (if any)
     if (sale.payment_history && sale.payment_history.length > 0) {

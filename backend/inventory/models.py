@@ -111,6 +111,7 @@ class Sale(models.Model):
         ('Paid', 'Paid'),
         ('Partial', 'Partial'),
         ('Unpaid', 'Unpaid'),
+        ('Returned', 'Returned'),
     ]
     
     customer_name = models.CharField(max_length=200, default='Walk-in Customer')

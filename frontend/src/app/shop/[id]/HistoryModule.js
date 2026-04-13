@@ -13,7 +13,8 @@ import {
   Banknote,
   Search,
   Package,
-  Layers
+  Layers,
+  RotateCcw
 } from 'lucide-react';
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
@@ -46,6 +47,29 @@ export default function HistoryModule() {
   }, [shopId]);
 
   const [paymentInputs, setPaymentInputs] = useState({});
+  const [returningId, setReturningId] = useState(null);
+
+  const handleReturnSale = async (saleId) => {
+    if (!confirm('Are you sure you want to return this sale? The inventory will be restored automatically.')) return;
+    setReturningId(saleId);
+    try {
+      const resp = await fetch(`${API_BASE}/sales/${saleId}/return_sale/?shop=${shopId}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+      });
+      const data = await resp.json();
+      if (resp.ok) {
+        fetchSalesHistory();
+      } else {
+        alert(data.error || 'Failed to return sale.');
+      }
+    } catch (err) {
+      console.error('Return sale failed:', err);
+      alert('Network error. Please try again.');
+    } finally {
+      setReturningId(null);
+    }
+  };
 
   const handlePaymentUpdate = async (saleId) => {
     const amount = parseFloat(paymentInputs[saleId]);
@@ -152,17 +176,21 @@ export default function HistoryModule() {
 
     const finalY = doc.lastAutoTable.finalY + 10;
 
+    const isFullyPaid = sale.sale_type === 'Cash' || sale.status === 'Paid';
+    const effectivePaid = isFullyPaid ? grandTotal : (sale.paid_amount + additionalTotal);
+    const balanceDue = Math.max(0, grandTotal - effectivePaid);
+
     doc.setFont('helvetica', 'normal');
     doc.setFontSize(10);
     doc.text('Paid Amount:', 130, finalY);
-    doc.text(`PKR ${Number(sale.paid_amount).toLocaleString()}`, 196, finalY, { align: 'right' });
+    doc.text(`PKR ${Number(effectivePaid).toLocaleString()}`, 196, finalY, { align: 'right' });
 
     doc.setFontSize(12);
     doc.setFont('helvetica', 'bold');
     doc.text('Grand Total:', 130, finalY + 10);
     doc.text(`PKR ${Number(grandTotal).toLocaleString()}`, 196, finalY + 10, { align: 'right' });
     doc.text('Balance Due:', 130, finalY + 20);
-    doc.text(`PKR ${Number(Math.max(0, grandTotal - sale.paid_amount)).toLocaleString()}`, 196, finalY + 20, { align: 'right' });
+    doc.text(`PKR ${Number(balanceDue).toLocaleString()}`, 196, finalY + 20, { align: 'right' });
 
     if (sale.payment_history && sale.payment_history.length > 0) {
       const paymentY = finalY + 35;
@@ -196,10 +224,16 @@ export default function HistoryModule() {
   const filteredHistory = salesHistory.filter(sale => {
     // 1. Type Filter
     let matchesType = true;
-    if (historyFilter === 'Cash') {
-      matchesType = sale.sale_type === 'Cash' || sale.status === 'Paid';
-    } else if (historyFilter === 'Credit') {
-      matchesType = (sale.sale_type === 'Advance' || sale.sale_type === 'Udhar') && sale.status !== 'Paid';
+    if (historyFilter === 'Returned') {
+      matchesType = sale.status === 'Returned';
+    } else {
+      // By default (All / Cash / Credit), hide returned sales
+      if (sale.status === 'Returned') return false;
+      if (historyFilter === 'Cash') {
+        matchesType = sale.sale_type === 'Cash' || sale.status === 'Paid';
+      } else if (historyFilter === 'Credit') {
+        matchesType = (sale.sale_type === 'Advance' || sale.sale_type === 'Udhar') && sale.status !== 'Paid';
+      }
     }
     if (!matchesType) return false;
 
@@ -219,14 +253,17 @@ export default function HistoryModule() {
     return true;
   });
 
-  const totalSalesAmount = filteredHistory.reduce((sum, sale) => sum + sale.total_amount, 0);
-  const totalPaidAmount = filteredHistory.reduce((sum, sale) => sum + (sale.status === 'Paid' ? sale.total_amount : sale.paid_amount), 0);
-  const totalBalanceDue = filteredHistory.reduce((sum, sale) => sum + (sale.status === 'Paid' ? 0 : sale.balance_amount), 0);
-  const totalAdditionalStockCost = filteredHistory.reduce((sum, sale) => {
+  const activeSales = filteredHistory.filter(s => s.status !== 'Returned');
+  const totalSalesAmount = activeSales.reduce((sum, sale) => sum + sale.total_amount, 0);
+  const totalPaidAmount = activeSales.reduce((sum, sale) => sum + (sale.status === 'Paid' ? sale.total_amount : sale.paid_amount), 0);
+  const totalBalanceDue = activeSales.reduce((sum, sale) => sum + (sale.status === 'Paid' ? 0 : sale.balance_amount), 0);
+  const totalAdditionalStockCost = activeSales.reduce((sum, sale) => {
     const stockCost = (sale.additional_stocks || []).reduce((s, stock) => s + parseFloat(stock.total_payment || 0), 0);
     return sum + stockCost;
   }, 0);
   const netSalesAmount = totalSalesAmount - totalAdditionalStockCost;
+  const totalReturnedSales = salesHistory.filter(s => s.status === 'Returned').length;
+  const totalReturnedValue = salesHistory.filter(s => s.status === 'Returned').reduce((sum, s) => sum + s.total_amount, 0);
 
   const generateReportPDF = () => {
     const doc = new jsPDF();
@@ -278,11 +315,18 @@ export default function HistoryModule() {
     // --- Report Summary ---
     const finalY = doc.lastAutoTable.finalY + 15;
 
-    // Total Sales = stock + additional stock combined
-    const totalGrossWithAdditional = filteredHistory.reduce((sum, sale) => {
+    let totalGrossWithAdditional = 0;
+    let computedTotalAdditionalStock = 0;
+    let computedTotalDue = 0;
+
+    filteredHistory.filter(s => s.status !== 'Returned').forEach((sale) => {
       const addStock = (sale.additional_stocks || []).reduce((s, st) => s + parseFloat(st.total_payment || 0), 0);
-      return sum + sale.total_amount + addStock;
-    }, 0);
+      totalGrossWithAdditional += sale.total_amount + addStock;
+      computedTotalAdditionalStock += addStock;
+      computedTotalDue += sale.status === 'Paid' ? 0 : sale.balance_amount;
+    });
+
+    const netSalesAmount = totalGrossWithAdditional - computedTotalAdditionalStock - computedTotalDue;
 
     doc.setFontSize(11);
     doc.setFont('helvetica', 'bold');
@@ -290,9 +334,14 @@ export default function HistoryModule() {
     doc.text('REPORT SUMMARY', 14, finalY);
 
     // Draw summary box
+    let boxHeight = 22;
+    if (computedTotalAdditionalStock > 0) boxHeight += 9;
+    if (computedTotalDue > 0) boxHeight += 9;
+    boxHeight += 9; // For the final Net Cash Line
+    
     doc.setDrawColor(184, 134, 11);
     doc.setLineWidth(0.5);
-    doc.rect(14, finalY + 5, 182, totalAdditionalStockCost > 0 ? 38 : 22);
+    doc.rect(14, finalY + 5, 182, boxHeight);
 
     doc.setFont('helvetica', 'normal');
     doc.setFontSize(10);
@@ -300,23 +349,38 @@ export default function HistoryModule() {
     doc.setFont('helvetica', 'bold');
     doc.text(`PKR ${totalGrossWithAdditional.toLocaleString()}`, 192, finalY + 14, { align: 'right' });
 
-    if (totalAdditionalStockCost > 0) {
+    let currentY = finalY + 14;
+
+    if (computedTotalAdditionalStock > 0) {
+      currentY += 9;
       doc.setFont('helvetica', 'normal');
       doc.setTextColor(150, 100, 0);
-      doc.text('Less: Additional Stock Cost:', 20, finalY + 23);
+      doc.text('Less: Additional Stock Cost:', 20, currentY);
       doc.setFont('helvetica', 'bold');
-      doc.text(`- PKR ${totalAdditionalStockCost.toLocaleString()}`, 192, finalY + 23, { align: 'right' });
-
-      // Net Sales line
-      doc.setDrawColor(0, 150, 80);
-      doc.setLineWidth(0.3);
-      doc.line(20, finalY + 27, 192, finalY + 27);
-      doc.setTextColor(0, 120, 60);
-      doc.setFontSize(11);
-      doc.text('Net Sales:', 20, finalY + 34);
-      doc.setFont('helvetica', 'bold');
-      doc.text(`PKR ${netSalesAmount.toLocaleString()}`, 192, finalY + 34, { align: 'right' });
+      doc.text(`- PKR ${computedTotalAdditionalStock.toLocaleString()}`, 192, currentY, { align: 'right' });
     }
+
+    if (computedTotalDue > 0) {
+      currentY += 9;
+      doc.setFont('helvetica', 'normal');
+      doc.setTextColor(180, 0, 0);
+      doc.text('Less: Outstanding Due Amount:', 20, currentY);
+      doc.setFont('helvetica', 'bold');
+      doc.text(`- PKR ${computedTotalDue.toLocaleString()}`, 192, currentY, { align: 'right' });
+    }
+
+    // Net Sales / Received Line
+    currentY += 4;
+    doc.setDrawColor(0, 150, 80);
+    doc.setLineWidth(0.3);
+    doc.line(20, currentY, 192, currentY);
+    
+    currentY += 7;
+    doc.setTextColor(0, 120, 60);
+    doc.setFontSize(11);
+    doc.text('Net Cash Received:', 20, currentY);
+    doc.setFont('helvetica', 'bold');
+    doc.text(`PKR ${netSalesAmount.toLocaleString()}`, 192, currentY, { align: 'right' });
 
     doc.save(`Sales_Report_${shopId}_${new Date().toLocaleDateString('en-CA')}.pdf`);
   };
@@ -385,13 +449,22 @@ export default function HistoryModule() {
              </div>
 
              <div className="flex bg-white/5 p-1 rounded-2xl border border-white/5 font-black text-[9px] uppercase tracking-widest hidden lg:flex">
-               {['All', 'Cash', 'Credit'].map(filterOption => (
+               {['All', 'Cash', 'Credit', 'Returned'].map(filterOption => (
                  <button 
                    key={filterOption}
                    onClick={() => setHistoryFilter(filterOption)}
-                   className={`px-4 py-2 rounded-xl transition-all ${historyFilter === filterOption ? 'bg-primary text-black shadow-lg shadow-primary/20' : 'text-zinc-500 hover:text-white'}`}
+                   className={`px-4 py-2 rounded-xl transition-all ${
+                     historyFilter === filterOption 
+                       ? filterOption === 'Returned' 
+                         ? 'bg-zinc-600 text-white shadow-lg' 
+                         : 'bg-primary text-black shadow-lg shadow-primary/20' 
+                       : 'text-zinc-500 hover:text-white'
+                   }`}
                  >
                    {filterOption === 'Credit' ? 'Adv/Udhar' : filterOption}
+                   {filterOption === 'Returned' && totalReturnedSales > 0 && (
+                     <span className="ml-1.5 bg-zinc-700 text-zinc-300 px-1.5 py-0.5 rounded-md text-[8px]">{totalReturnedSales}</span>
+                   )}
                  </button>
                ))}
              </div>
@@ -412,13 +485,23 @@ export default function HistoryModule() {
              <p className="text-[10px] font-black uppercase tracking-widest text-zinc-500 mb-1">Outstanding</p>
              <p className="text-2xl font-black italic text-red-500">PKR {totalBalanceDue.toLocaleString()}</p>
            </div>
-           <button 
-             onClick={generateReportPDF}
-             className="bg-primary/10 hover:bg-primary border border-primary/20 hover:border-primary text-primary hover:text-black transition-all p-4 rounded-2xl flex flex-col items-center justify-center gap-2 group shadow-xl"
-           >
-             <Printer size={24} className="group-hover:scale-110 transition-transform" />
-             <span className="text-[10px] font-black uppercase tracking-widest">Generate PDF Report</span>
-           </button>
+           <div className="grid grid-cols-2 gap-3">
+             <button
+               onClick={() => setHistoryFilter('Returned')}
+               className="bg-zinc-800/80 hover:bg-zinc-700 border border-zinc-700/50 hover:border-zinc-500 transition-all p-4 rounded-2xl flex flex-col items-center justify-center gap-1 group"
+             >
+               <RotateCcw size={18} className="text-zinc-400 group-hover:text-white group-hover:rotate-180 transition-transform duration-500" />
+               <span className="text-[9px] font-black uppercase tracking-widest text-zinc-500 group-hover:text-white">Returns</span>
+               <span className="text-xl font-black text-zinc-300">{totalReturnedSales}</span>
+             </button>
+             <button 
+               onClick={generateReportPDF}
+               className="bg-primary/10 hover:bg-primary border border-primary/20 hover:border-primary text-primary hover:text-black transition-all p-4 rounded-2xl flex flex-col items-center justify-center gap-2 group shadow-xl"
+             >
+               <Printer size={20} className="group-hover:scale-110 transition-transform" />
+               <span className="text-[9px] font-black uppercase tracking-widest">PDF Report</span>
+             </button>
+           </div>
          </div>
 
          <div className="space-y-4">
@@ -444,7 +527,7 @@ export default function HistoryModule() {
                  </div>
 
                  <div className="flex items-center gap-12" onClick={e => e.stopPropagation()}>
-                    {sale.status !== 'Paid' && (
+                    {sale.status !== 'Paid' && sale.status !== 'Returned' && (
                       <div className="flex items-center gap-3 bg-white/5 p-2 rounded-2xl border border-white/5">
                         <div className="relative">
                           <Banknote size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-zinc-500" />
@@ -481,7 +564,12 @@ export default function HistoryModule() {
                     </div>
                     
                     <div className="text-right border-l border-white/5 pl-6 sm:pl-12 min-w-[100px] sm:min-w-[150px]">
-                      <span className={`px-4 py-2 rounded-xl text-[9px] font-black uppercase tracking-[0.2em] ${sale.status === 'Paid' ? 'bg-emerald-500/10 text-emerald-500' : sale.status === 'Partial' ? 'bg-amber-500/10 text-amber-500' : 'bg-red-500/10 text-red-500'}`}>
+                      <span className={`px-4 py-2 rounded-xl text-[9px] font-black uppercase tracking-[0.2em] ${
+                        sale.status === 'Paid' ? 'bg-emerald-500/10 text-emerald-500' : 
+                        sale.status === 'Partial' ? 'bg-amber-500/10 text-amber-500' : 
+                        sale.status === 'Returned' ? 'bg-zinc-500/10 text-zinc-400 line-through' : 
+                        'bg-red-500/10 text-red-500'
+                      }`}>
                         {sale.status}
                       </span>
                       <p className="text-[9px] font-bold text-zinc-600 uppercase tracking-widest mt-3">{sale.sale_type}</p>
@@ -493,6 +581,17 @@ export default function HistoryModule() {
                     >
                       <Printer size={20} />
                     </button>
+
+                    {sale.status !== 'Returned' && (
+                      <button
+                        onClick={() => handleReturnSale(sale.id)}
+                        disabled={returningId === sale.id}
+                        className="w-12 h-12 rounded-2xl bg-white/5 hover:bg-red-500/20 hover:text-red-400 transition-all flex items-center justify-center text-zinc-600 shadow-lg border border-white/5"
+                        title="Return this sale"
+                      >
+                        <RotateCcw size={18} className={returningId === sale.id ? 'animate-spin' : ''} />
+                      </button>
+                    )}
                   </div>
                </div>
                

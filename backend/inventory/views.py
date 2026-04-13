@@ -115,6 +115,39 @@ class SaleViewSet(viewsets.ModelViewSet):
         except Exception as e:
             return Response({'error': str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
+    @method_decorator(csrf_exempt)
+    @action(detail=True, methods=['post'])
+    def return_sale(self, request, pk=None):
+        try:
+            sale = self.get_object()
+
+            if sale.status == 'Returned':
+                return Response({'error': 'This sale has already been returned.'}, status=status.HTTP_400_BAD_REQUEST)
+
+            # Restore inventory for each sale item
+            for item in sale.items.all():
+                roll = item.roll
+                if roll:
+                    if roll.length > 0 or item.length > 0:
+                        # Area/length-based roll — add length back
+                        roll.length = round(float(roll.length) + float(item.length), 4)
+                    else:
+                        # Piece/quantity-based roll — add quantity back
+                        roll.quantity = int(roll.quantity) + int(item.length or 1)
+
+                    # If it was sold, put it back in stock
+                    if roll.status == 'Sold':
+                        roll.status = 'In Stock'
+                    roll.save()
+
+            sale.status = 'Returned'
+            sale.save()
+
+            serializer = self.get_serializer(sale)
+            return Response(serializer.data)
+        except Exception as e:
+            return Response({'error': str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
 class SaleItemViewSet(viewsets.ModelViewSet):
     queryset = SaleItem.objects.all()
     serializer_class = SaleItemSerializer
