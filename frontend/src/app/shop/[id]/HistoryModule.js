@@ -504,7 +504,7 @@ export default function HistoryModule() {
            </div>
          </div>
 
-         <div className="space-y-4">
+         <div className="overflow-y-auto max-h-[700px] pr-2 space-y-4 scrollbar-thin scrollbar-thumb-white/10 scrollbar-track-transparent">
            {filteredHistory.slice().reverse().map((sale) => (
              <div key={sale.id} className="p-8 rounded-[2rem] bg-white/[0.02] border border-white/5 hover:border-primary/20 transition-all group mb-4">
                <div 
