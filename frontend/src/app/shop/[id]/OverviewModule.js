@@ -91,9 +91,8 @@ export default function OverviewModule({ onNavigate }) {
         let salesToday = 0, salesWeekly = 0, salesMonthly = 0;
 
         activeSales.forEach(sale => {
-          // Use total_amount + additional stock (same as History "Gross Sales")
-          const addStock = (sale.additional_stocks || []).reduce((s, st) => s + parseFloat(st.total_payment || 0), 0);
-          const grossAmount = parseFloat(sale.total_amount || 0) + addStock;
+          // Use total_amount only — same as History "Gross Sales" card
+          const grossAmount = parseFloat(sale.total_amount || 0);
           const d = new Date(sale.date);
           const diffDays = (now - d) / (1000 * 60 * 60 * 24);
 
@@ -294,14 +293,14 @@ export default function OverviewModule({ onNavigate }) {
         />
         <MetricCard 
           title="Total Sales"
-          value={`PKR ${Math.round(stats.sales.totalValue / 1000)}k`}
+          value={`PKR ${stats.sales.totalValue.toLocaleString()}`}
           subtext="All-time gross"
           icon={TrendingUp}
           colorClass="text-emerald-500"
         />
         <MetricCard 
           title="Outstanding"
-          value={`PKR ${Math.round(stats.sales.outstanding / 1000)}k`}
+          value={`PKR ${stats.sales.outstanding.toLocaleString()}`}
           subtext="Click to review"
           icon={AlertCircle}
           colorClass="text-red-400"
