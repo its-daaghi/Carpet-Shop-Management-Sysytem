@@ -14,8 +14,11 @@ import {
   Receipt,
   RotateCcw,
   AlertCircle,
-  CheckCircle2
+  CheckCircle2,
+  FileText
 } from 'lucide-react';
+import jsPDF from 'jspdf';
+import autoTable from 'jspdf-autotable';
 
 const API_BASE = 'http://127.0.0.1:8000/api/inventory';
 
@@ -89,14 +92,19 @@ export default function OverviewModule({ onNavigate }) {
 
         const salesDailyMap = {};
         let salesToday = 0, salesWeekly = 0, salesMonthly = 0;
+        let additionalStockToday = 0;
 
         activeSales.forEach(sale => {
           // Use total_amount only — same as History "Gross Sales" card
           const grossAmount = parseFloat(sale.total_amount || 0);
+          const addStockAmount = (sale.additional_stocks || []).reduce((s, st) => s + parseFloat(st.total_payment || 0), 0);
           const d = new Date(sale.date);
           const diffDays = (now - d) / (1000 * 60 * 60 * 24);
 
-          if (sale.date === todayStr) salesToday += grossAmount;
+          if (sale.date === todayStr) {
+            salesToday += grossAmount;
+            additionalStockToday += addStockAmount;
+          }
           if (diffDays <= 7) salesWeekly += grossAmount;
           if (d.getMonth() === now.getMonth() && d.getFullYear() === now.getFullYear()) salesMonthly += grossAmount;
           if (diffDays <= 7) salesDailyMap[sale.date] = (salesDailyMap[sale.date] || 0) + grossAmount;
@@ -136,6 +144,7 @@ export default function OverviewModule({ onNavigate }) {
         setStats({
           sales: {
             today: salesToday,
+            todayAdditional: additionalStockToday,
             weekly: salesWeekly,
             monthly: salesMonthly,
             dailyHistory: buildHistory(salesDailyMap),
@@ -165,6 +174,57 @@ export default function OverviewModule({ onNavigate }) {
     fetchData();
   }, [shopId]);
 
+  const generateTodayPDF = () => {
+    if (!stats) return;
+    
+    const doc = new jsPDF();
+    const shopName = shopId === 'usman' ? 'Usman Carpet & Qaleen Center' : 'Hanif Carpet Premium Outlet';
+    const todayStr = new Date().toLocaleDateString('en-CA');
+    
+    const { today: salesToday, todayAdditional } = stats.sales;
+    const { today: expToday } = stats.expenses;
+    
+    const grossSalesWithAdditional = salesToday + todayAdditional;
+    const netCash = grossSalesWithAdditional - todayAdditional - expToday;
+
+    doc.setFillColor(184, 134, 11);
+    doc.rect(0, 0, 210, 40, 'F');
+    doc.setFontSize(24);
+    doc.setTextColor(255);
+    doc.setFont('helvetica', 'bold');
+    doc.text(shopName.toUpperCase(), 14, 25);
+    doc.setFontSize(10);
+    doc.text("TODAY'S BUSINESS SUMMARY", 14, 32);
+
+    doc.setTextColor(0);
+    doc.setFontSize(12);
+    doc.text(`Date: ${todayStr}`, 14, 55);
+
+    autoTable(doc, {
+      startY: 65,
+      head: [['Description', 'Amount']],
+      body: [
+        ['Total Sales (Gross + Additional)', `PKR ${grossSalesWithAdditional.toLocaleString()}`],
+        ['Less: Additional Stock Cost', `- PKR ${todayAdditional.toLocaleString()}`],
+        ["Less: Today's Expenses", `- PKR ${expToday.toLocaleString()}`]
+      ],
+      theme: 'grid',
+      headStyles: { fillColor: [184, 134, 11] },
+      styles: { fontSize: 10 },
+      columnStyles: { 1: { halign: 'right' } }
+    });
+
+    const finalY = doc.lastAutoTable.finalY + 10;
+    
+    doc.setFontSize(12);
+    doc.setFont('helvetica', 'bold');
+    doc.setTextColor(0, 120, 60);
+    doc.text('Net Sales (To Shop Owner):', 14, finalY);
+    doc.text(`PKR ${netCash.toLocaleString()}`, 196, finalY, { align: 'right' });
+
+    doc.save(`Today_Summary_${shopId}_${todayStr}.pdf`);
+  };
+
   if (loading) return (
     <div className="p-20 text-center font-black bronze-text animate-pulse italic uppercase tracking-[0.5em]">
       Synchronizing Intelligence...
@@ -188,13 +248,22 @@ export default function OverviewModule({ onNavigate }) {
             Live data for {shopId === 'usman' ? 'Usman Carpet' : 'Hanif Carpet'}
           </p>
         </div>
-        <button 
-          onClick={() => onNavigate('Billing')}
-          className="bg-primary text-primary-foreground px-8 py-4 rounded-2xl font-black text-[10px] uppercase tracking-widest flex items-center gap-3 shadow-2xl shadow-primary/20 hover:scale-105 active:scale-95 transition-all"
-        >
-          <Receipt size={18} strokeWidth={3} />
-          Generate Bill
-        </button>
+        <div className="flex items-center gap-4">
+          <button 
+            onClick={generateTodayPDF}
+            className="bg-zinc-800 text-white px-6 py-4 rounded-2xl font-black text-[10px] uppercase tracking-widest flex items-center gap-2 hover:scale-105 active:scale-95 transition-all border border-white/10 shadow-xl"
+          >
+            <FileText size={16} />
+            Today Details
+          </button>
+          <button 
+            onClick={() => onNavigate('Billing')}
+            className="bg-primary text-primary-foreground px-8 py-4 rounded-2xl font-black text-[10px] uppercase tracking-widest flex items-center gap-3 shadow-2xl shadow-primary/20 hover:scale-105 active:scale-95 transition-all"
+          >
+            <Receipt size={18} strokeWidth={3} />
+            Generate Bill
+          </button>
+        </div>
       </header>
 
       {/* Charts */}
@@ -269,7 +338,7 @@ export default function OverviewModule({ onNavigate }) {
       </div>
 
       {/* Summary Cards */}
-      <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-5">
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-5">
         <MetricCard 
           title="In Stock"
           value={`${stats.counts.rolls}`}
@@ -290,29 +359,6 @@ export default function OverviewModule({ onNavigate }) {
           subtext="Supply Partners"
           icon={Factory}
           colorClass="text-amber-500"
-        />
-        <MetricCard 
-          title="Total Sales"
-          value={`PKR ${stats.sales.totalValue.toLocaleString()}`}
-          subtext="All-time gross"
-          icon={TrendingUp}
-          colorClass="text-emerald-500"
-        />
-        <MetricCard 
-          title="Outstanding"
-          value={`PKR ${stats.sales.outstanding.toLocaleString()}`}
-          subtext="Click to review"
-          icon={AlertCircle}
-          colorClass="text-red-400"
-          onClick={() => onNavigate('History')}
-        />
-        <MetricCard 
-          title="Returns"
-          value={stats.counts.returned}
-          subtext="Click to review"
-          icon={RotateCcw}
-          colorClass="text-zinc-400"
-          onClick={() => onNavigate('History')}
         />
       </div>
 

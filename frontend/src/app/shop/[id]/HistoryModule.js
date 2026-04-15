@@ -24,10 +24,12 @@ const API_BASE = 'http://127.0.0.1:8000/api/inventory';
 export default function HistoryModule() {
   const { id: shopId } = useParams();
   const [salesHistory, setSalesHistory] = useState([]);
+  const [expensesHistory, setExpensesHistory] = useState([]);
   const [historyFilter, setHistoryFilter] = useState('All'); // 'All', 'Cash', 'Credit'
   const [searchQuery, setSearchQuery] = useState('');
   const today = new Date().toLocaleDateString('en-CA'); // Outputs YYYY-MM-DD natively
-  const [startDate, setStartDate] = useState(today);
+  const startOfMonth = `${today.substring(0, 7)}-01`;
+  const [startDate, setStartDate] = useState(startOfMonth);
   const [endDate, setEndDate] = useState(today);
   const [expandedSaleId, setExpandedSaleId] = useState(null);
 
@@ -42,8 +44,20 @@ export default function HistoryModule() {
     }
   };
 
+  const fetchExpensesHistory = async () => {
+    try {
+      const resp = await fetch(`${API_BASE}/expenses/?shop=${shopId}`);
+      if (resp.ok) {
+        setExpensesHistory(await resp.json());
+      }
+    } catch (err) {
+      console.error("Failed to fetch expenses", err);
+    }
+  };
+
   useEffect(() => {
     fetchSalesHistory();
+    fetchExpensesHistory();
   }, [shopId]);
 
   const [paymentInputs, setPaymentInputs] = useState({});
@@ -326,7 +340,15 @@ export default function HistoryModule() {
       computedTotalDue += sale.status === 'Paid' ? 0 : sale.balance_amount;
     });
 
-    const netSalesAmount = totalGrossWithAdditional - computedTotalAdditionalStock - computedTotalDue;
+    let totalExpensesAmount = 0;
+    expensesHistory.forEach(exp => {
+      if (startDate && new Date(exp.date) < new Date(startDate)) return;
+      if (endDate && new Date(exp.date) > new Date(endDate)) return;
+      const amount = parseFloat(String(exp.amount).replace(/[^0-9.]/g, '')) || 0;
+      totalExpensesAmount += amount;
+    });
+
+    const netSalesAmount = totalGrossWithAdditional - computedTotalAdditionalStock - computedTotalDue - totalExpensesAmount;
 
     doc.setFontSize(11);
     doc.setFont('helvetica', 'bold');
@@ -337,6 +359,7 @@ export default function HistoryModule() {
     let boxHeight = 22;
     if (computedTotalAdditionalStock > 0) boxHeight += 9;
     if (computedTotalDue > 0) boxHeight += 9;
+    if (totalExpensesAmount > 0) boxHeight += 9;
     boxHeight += 9; // For the final Net Cash Line
     
     doc.setDrawColor(184, 134, 11);
@@ -367,6 +390,15 @@ export default function HistoryModule() {
       doc.text('Less: Outstanding Due Amount:', 20, currentY);
       doc.setFont('helvetica', 'bold');
       doc.text(`- PKR ${computedTotalDue.toLocaleString()}`, 192, currentY, { align: 'right' });
+    }
+
+    if (totalExpensesAmount > 0) {
+      currentY += 9;
+      doc.setFont('helvetica', 'normal');
+      doc.setTextColor(180, 50, 50);
+      doc.text('Less: Total Expenses:', 20, currentY);
+      doc.setFont('helvetica', 'bold');
+      doc.text(`- PKR ${totalExpensesAmount.toLocaleString()}`, 192, currentY, { align: 'right' });
     }
 
     // Net Sales / Received Line
