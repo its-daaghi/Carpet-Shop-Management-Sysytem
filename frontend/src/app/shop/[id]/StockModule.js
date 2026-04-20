@@ -89,7 +89,7 @@ export default function StockModule() {
       const respRolls = await fetch(`${API_BASE}/rolls/${shopParam}`);
       const respTypes = await fetch(`${API_BASE}/types/${shopParam}`);
       const respDesigns = await fetch(`${API_BASE}/designs/${shopParam}`);
-      const respFactories = await fetch(`${API_BASE}/factories/`);
+      const respFactories = await fetch(`${API_BASE}/factories/${shopParam}`);
       
       if (respRolls.ok) setRolls(await respRolls.json());
       if (respFactories.ok) setFactories(await respFactories.json());

@@ -27,14 +27,18 @@ import {
   Edit3,
   Save,
   RotateCcw,
+  Printer,
+  Banknote,
 } from 'lucide-react';
+import jsPDF from 'jspdf';
+import autoTable from 'jspdf-autotable';
 
 const API_BASE = 'http://127.0.0.1:8000/api/inventory';
 
 const fmt = (n) => `PKR ${Number(n || 0).toLocaleString('en-PK')}`;
 
 // ─── Factory List Card ────────────────────────────────────────────────────────
-const FactoryCard = ({ factory, onSelect }) => {
+const FactoryCard = ({ factory, onSelect, onDelete }) => {
   const balance = factory.balance_due || 0;
   const hasBalance = balance > 0;
 
@@ -83,7 +87,14 @@ const FactoryCard = ({ factory, onSelect }) => {
           </div>
         </div>
 
-        <div className="mt-4 flex justify-end">
+        <div className="mt-4 flex justify-between items-center">
+          <button 
+            onClick={(e) => { e.stopPropagation(); onDelete(factory.id); }}
+            className="p-2.5 rounded-xl bg-red-500/5 text-red-500/40 hover:text-red-500 hover:bg-red-500/10 transition-all"
+            title="Delete Factory"
+          >
+            <Trash2 size={16} />
+          </button>
           <button className="p-2 rounded-xl bg-white/5 hover:bg-primary/20 text-zinc-500 hover:text-primary transition-all">
             <ChevronRight size={16} />
           </button>
@@ -94,7 +105,7 @@ const FactoryCard = ({ factory, onSelect }) => {
 };
 
 // ─── Factory Detail View ──────────────────────────────────────────────────────
-const FactoryDetails = ({ factory, onBack, onRefresh }) => {
+const FactoryDetails = ({ factory, onBack, onRefresh, onDelete }) => {
   const [activeTab, setActiveTab] = useState('maal');
   const [sidePanel, setSidePanel] = useState('payment'); // 'maal' | 'payment'
   const { id: shopId } = useParams();
@@ -111,16 +122,18 @@ const FactoryDetails = ({ factory, onBack, onRefresh }) => {
   // Payment form
   const [payAmount, setPayAmount] = useState('');
   const [payRemarks, setPayRemarks] = useState('');
+  const [payDate, setPayDate] = useState(today);
   const [payLoading, setPayLoading] = useState(false);
 
   // Auto-compute total_price
   const computedTotal = useMemo(() => {
     const up = parseFloat(rollForm.unit_price) || 0;
     const len = parseFloat(rollForm.length) || 0;
+    const wid = parseFloat(rollForm.width) || 0;
     const qty = parseInt(rollForm.quantity) || 1;
     const isBulk = ['mate', 'qaleen'].includes(rollForm.category);
-    return isBulk ? up * qty : up * len;
-  }, [rollForm.unit_price, rollForm.length, rollForm.quantity, rollForm.category]);
+    return isBulk ? up * qty : up * len * wid;
+  }, [rollForm.unit_price, rollForm.length, rollForm.width, rollForm.quantity, rollForm.category]);
 
   // Date-wise grouped rolls
   const dateGroupedRolls = useMemo(() => {
@@ -185,6 +198,7 @@ const FactoryDetails = ({ factory, onBack, onRefresh }) => {
     if (!payAmount) return;
     setPayLoading(true);
     try {
+      const selectedDate = new Date(payDate);
       const resp = await fetch(`${API_BASE}/factory-payments/?shop=${shopId}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -192,11 +206,11 @@ const FactoryDetails = ({ factory, onBack, onRefresh }) => {
           factory: factory.id,
           amount: `PKR ${payAmount}`,
           remarks: payRemarks || 'No remarks',
-          date: new Date().toLocaleDateString('en-PK'),
-          month: new Date().toLocaleString('default', { month: 'long' }),
+          date: payDate,
+          month: selectedDate.toLocaleString('default', { month: 'long' }),
         }),
       });
-      if (resp.ok) { onRefresh(); setPayAmount(''); setPayRemarks(''); }
+      if (resp.ok) { onRefresh(); setPayAmount(''); setPayRemarks(''); setPayDate(today); }
     } catch (err) { console.error(err); }
     setPayLoading(false);
   };
@@ -215,6 +229,104 @@ const FactoryDetails = ({ factory, onBack, onRefresh }) => {
 
   const isBulkCategory = ['mate', 'qaleen'].includes(rollForm.category);
 
+  const generateStockPDF = () => {
+    const doc = new jsPDF();
+    const shopName = shopId === 'usman' ? 'Usman Carpet & Qaleen Center' : 'Hanif Carpet Premium Outlet';
+    
+    // Header
+    doc.setFillColor(184, 134, 11);
+    doc.rect(0, 0, 210, 40, 'F');
+    doc.setFontSize(22);
+    doc.setTextColor(255);
+    doc.setFont('helvetica', 'bold');
+    doc.text(shopName.toUpperCase(), 14, 25);
+    doc.setFontSize(10);
+    doc.text('FACTORY STOCK / GOODS RECEIVED REPORT', 14, 32);
+
+    // Factory Info
+    doc.setTextColor(0);
+    doc.setFontSize(10);
+    doc.setFont('helvetica', 'normal');
+    doc.text(`Factory: ${factory.name}`, 14, 55);
+    doc.text(`Total Goods Value: PKR ${totalGoods.toLocaleString()}`, 14, 62);
+    doc.text(`Report Date: ${new Date().toLocaleDateString()}`, 160, 55);
+
+    // Maal Received Table
+    doc.setFont('helvetica', 'bold');
+    doc.text('GOODS RECEIVED HISTORY (MAAL RECEIVED)', 14, 75);
+    const maalRows = factory.rolls.map((r, i) => [
+      i + 1,
+      r.received_date || '-',
+      r.roll_id,
+      `${r.category} - ${r.product_type}`,
+      r.length > 0 ? `${r.length}x${r.width} ft` : `${r.quantity} pcs`,
+      `PKR ${Number(r.unit_price).toLocaleString()}`,
+      `PKR ${Number(r.total_price).toLocaleString()}`
+    ]);
+    autoTable(doc, {
+      startY: 78,
+      head: [['#', 'Date', 'ID', 'Category/Type', 'Dims/Qty', 'Rate', 'Total']],
+      body: maalRows,
+      theme: 'striped',
+      headStyles: { fillColor: [184, 134, 11] },
+      styles: { fontSize: 8 },
+    });
+
+    doc.setFontSize(8);
+    doc.setFont('helvetica', 'italic');
+    doc.text('Generated by HM Carpet Management System', 105, 290, { align: 'center' });
+
+    doc.save(`Stock_Report_${factory.name.replace(/\s+/g, '_')}.pdf`);
+  };
+
+  const generatePaymentPDF = () => {
+    const doc = new jsPDF();
+    const shopName = shopId === 'usman' ? 'Usman Carpet & Qaleen Center' : 'Hanif Carpet Premium Outlet';
+    
+    // Header
+    doc.setFillColor(46, 125, 50); // Green for payments
+    doc.rect(0, 0, 210, 40, 'F');
+    doc.setFontSize(22);
+    doc.setTextColor(255);
+    doc.setFont('helvetica', 'bold');
+    doc.text(shopName.toUpperCase(), 14, 25);
+    doc.setFontSize(10);
+    doc.text('FACTORY PAYMENT HISTORY STATEMENT', 14, 32);
+
+    // Factory Info
+    doc.setTextColor(0);
+    doc.setFontSize(10);
+    doc.setFont('helvetica', 'normal');
+    doc.text(`Factory: ${factory.name}`, 14, 55);
+    doc.text(`Total Paid: PKR ${totalPaid.toLocaleString()}`, 14, 62);
+    doc.text(`Current Balance: PKR ${balanceDue.toLocaleString()}`, 14, 69);
+    doc.text(`Report Date: ${new Date().toLocaleDateString()}`, 160, 55);
+
+    // Payment History Table
+    doc.setFont('helvetica', 'bold');
+    doc.text('PAYMENT HISTORY TIMELINE', 14, 80);
+    const payRows = (factory.payments || []).map((p, i) => [
+      i + 1,
+      p.date,
+      p.remarks,
+      p.amount
+    ]);
+    autoTable(doc, {
+      startY: 83,
+      head: [['#', 'Date', 'Remarks', 'Amount Paid']],
+      body: payRows,
+      theme: 'grid',
+      headStyles: { fillColor: [46, 125, 50] },
+      styles: { fontSize: 9 },
+    });
+
+    doc.setFontSize(8);
+    doc.setFont('helvetica', 'italic');
+    doc.text('Generated by HM Carpet Management System', 105, 290, { align: 'center' });
+
+    doc.save(`Payment_History_${factory.name.replace(/\s+/g, '_')}.pdf`);
+  };
+
   return (
     <div className="space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-500">
       {/* Header */}
@@ -231,7 +343,33 @@ const FactoryDetails = ({ factory, onBack, onRefresh }) => {
           </div>
         </div>
 
-        {/* Tab switcher */}
+        <div className="flex gap-4 items-center">
+          <button 
+            onClick={generateStockPDF}
+            className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-primary shadow-lg shadow-primary/20 text-black hover:scale-105 active:scale-95 transition-all font-black text-[9px] uppercase tracking-widest"
+            title="Download Inventory History"
+          >
+            <Package size={16} />
+            Stock PDF
+          </button>
+
+          <button 
+            onClick={generatePaymentPDF}
+            className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-emerald-500 shadow-lg shadow-emerald-500/20 text-white hover:scale-105 active:scale-95 transition-all font-black text-[9px] uppercase tracking-widest"
+            title="Download Payment Account"
+          >
+            <Banknote size={16} />
+            Payments PDF
+          </button>
+
+          <button 
+            onClick={() => onDelete(factory.id)}
+            className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-red-500/5 border border-red-500/10 text-red-500 hover:bg-red-500/10 transition-all font-black text-[9px] uppercase tracking-widest"
+          >
+            <Trash2 size={16} />
+          </button>
+          
+          {/* Tab switcher */}
         <div className="flex gap-2 glass p-1 rounded-2xl">
           <button onClick={() => setActiveTab('maal')}
             className={`px-5 py-2.5 rounded-xl text-xs font-black uppercase tracking-widest transition-all ${activeTab === 'maal' ? 'bg-primary text-primary-foreground shadow-lg' : 'text-zinc-500 hover:text-white'}`}>
@@ -241,6 +379,7 @@ const FactoryDetails = ({ factory, onBack, onRefresh }) => {
             className={`px-5 py-2.5 rounded-xl text-xs font-black uppercase tracking-widest transition-all ${activeTab === 'payments' ? 'bg-primary text-primary-foreground shadow-lg' : 'text-zinc-500 hover:text-white'}`}>
             Payment History
           </button>
+          </div>
         </div>
       </header>
 
@@ -448,13 +587,13 @@ const FactoryDetails = ({ factory, onBack, onRefresh }) => {
                       <label className="text-[9px] font-black text-zinc-500 uppercase tracking-widest">Category</label>
                       <select value={rollForm.category}
                         onChange={e => setRollForm({ ...rollForm, category: e.target.value })}
-                        className="w-full bg-white/5 border border-border rounded-xl px-4 py-3 focus:border-primary outline-none text-sm font-bold transition-all">
-                        <option value="carpet">Carpet</option>
-                        <option value="qaleen">Qaleen</option>
-                        <option value="sheet">Sheet</option>
-                        <option value="prayers">Prayer Mat</option>
-                        <option value="mate">Mate</option>
-                        <option value="cut-pieces">Cut Pieces</option>
+                        className="w-full bg-zinc-900 border border-border rounded-xl px-4 py-3 focus:border-primary outline-none text-sm font-bold transition-all text-white">
+                        <option value="carpet" className="bg-zinc-900 text-white">Carpet</option>
+                        <option value="qaleen" className="bg-zinc-900 text-white">Qaleen</option>
+                        <option value="sheet" className="bg-zinc-900 text-white">Sheet</option>
+                        <option value="prayers" className="bg-zinc-900 text-white">Prayer Mat</option>
+                        <option value="mate" className="bg-zinc-900 text-white">Mate</option>
+                        <option value="cut-pieces" className="bg-zinc-900 text-white">Cut Pieces</option>
                       </select>
                     </div>
 
@@ -605,8 +744,14 @@ const FactoryDetails = ({ factory, onBack, onRefresh }) => {
                       <label className="text-[9px] font-black text-zinc-500 uppercase tracking-widest">Remarks</label>
                       <textarea value={payRemarks}
                         onChange={e => setPayRemarks(e.target.value)}
-                        className="w-full bg-white/5 border border-border rounded-xl px-4 py-3 focus:border-primary outline-none text-sm font-medium h-24 resize-none transition-all"
+                        className="w-full bg-white/5 border border-border rounded-xl px-4 py-3 focus:border-primary outline-none text-sm font-medium h-20 resize-none transition-all"
                         placeholder="e.g. January ka hisaab..." />
+                    </div>
+                    <div className="space-y-1.5">
+                      <label className="text-[9px] font-black text-zinc-500 uppercase tracking-widest">Payment Date</label>
+                      <input type="date" value={payDate}
+                        onChange={e => setPayDate(e.target.value)}
+                        className="w-full bg-white/5 border border-border rounded-xl px-4 py-3 focus:border-primary outline-none text-sm font-bold transition-all" />
                     </div>
                     <button type="submit" disabled={!payAmount || payLoading}
                       className="w-full bg-primary text-primary-foreground py-4 rounded-xl font-black uppercase tracking-[0.15em] text-xs shadow-xl shadow-primary/20 hover:scale-[1.02] active:scale-[0.98] transition-all disabled:opacity-50 disabled:grayscale">
@@ -655,7 +800,7 @@ export default function FactoriesModule() {
 
   const fetchFactories = async () => {
     try {
-      const resp = await fetch(`${API_BASE}/factories/`);
+      const resp = await fetch(`${API_BASE}/factories/?shop=${shopId}`);
       if (resp.ok) {
         const data = await resp.json();
         setFactories(data);
@@ -687,6 +832,18 @@ export default function FactoriesModule() {
     setLoading(false);
   };
 
+  const handleDeleteFactory = async (id) => {
+    if (!window.confirm("Khabardar! Factory delete karne se iska sara record (maal aur payments) khatam ho jayega. Kya aap waqai delete karna chahte hain?")) return;
+    try {
+      const resp = await fetch(`${API_BASE}/factories/${id}/?shop=${shopId}`, { method: 'DELETE' });
+      if (resp.ok) {
+        await fetchFactories();
+        setView('list');
+        setSelectedFactory(null);
+      }
+    } catch (err) { console.error('Delete factory failed', err); }
+  };
+
   return (
     <div className="w-full">
       <AnimatePresence mode="wait">
@@ -710,7 +867,12 @@ export default function FactoriesModule() {
 
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
               {factories.map(f => (
-                <FactoryCard key={f.id} factory={f} onSelect={(fact) => { setSelectedFactory(fact); setView('details'); }} />
+                <FactoryCard 
+                  key={f.id} 
+                  factory={f} 
+                  onSelect={(fact) => { setSelectedFactory(fact); setView('details'); }} 
+                  onDelete={handleDeleteFactory}
+                />
               ))}
               {factories.length === 0 && (
                 <div className="col-span-full py-24 text-center glass rounded-[3rem] border-dashed border-2 border-border/50">
@@ -781,6 +943,7 @@ export default function FactoriesModule() {
             factory={selectedFactory}
             onBack={() => setView('list')}
             onRefresh={fetchFactories}
+            onDelete={handleDeleteFactory}
           />
         )}
       </AnimatePresence>
