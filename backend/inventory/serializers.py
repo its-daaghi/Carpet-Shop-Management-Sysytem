@@ -48,9 +48,31 @@ class FactoryPaymentSerializer(serializers.ModelSerializer):
 class FactorySerializer(serializers.ModelSerializer):
     payments = FactoryPaymentSerializer(many=True, read_only=True)
     rolls = RollSerializer(many=True, read_only=True)
+    total_goods_value = serializers.SerializerMethodField()
+    total_paid = serializers.SerializerMethodField()
+    balance_due = serializers.SerializerMethodField()
+
     class Meta:
         model = Factory
         fields = '__all__'
+
+    def get_total_goods_value(self, obj):
+        return round(sum(r.total_price or 0 for r in obj.rolls.all()), 2)
+
+    def get_total_paid(self, obj):
+        total = 0
+        for p in obj.payments.all():
+            try:
+                amount_str = str(p.amount).replace('PKR', '').replace(',', '').strip()
+                total += float(amount_str)
+            except (ValueError, TypeError):
+                pass
+        return round(total, 2)
+
+    def get_balance_due(self, obj):
+        goods = self.get_total_goods_value(obj)
+        paid = self.get_total_paid(obj)
+        return round(max(0, goods - paid), 2)
 
 class SaleItemSerializer(serializers.ModelSerializer):
     roll_id_str = serializers.CharField(source='roll.roll_id', read_only=True, default='')

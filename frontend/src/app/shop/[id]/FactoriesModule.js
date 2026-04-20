@@ -1,281 +1,641 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useParams } from 'next/navigation';
-import { 
-  Factory, 
-  Plus, 
-  X, 
-  Phone, 
-  MapPin, 
-  ChevronRight, 
-  Package, 
-  Receipt, 
+import {
+  Factory,
+  Plus,
+  X,
+  Phone,
+  MapPin,
+  ChevronRight,
+  Package,
+  Receipt,
   History,
   Calculator,
   Wallet,
   Trash2,
-  ArrowLeft
+  ArrowLeft,
+  TrendingDown,
+  CheckCircle,
+  AlertCircle,
+  Calendar,
+  Hash,
+  Layers,
+  DollarSign,
+  Edit3,
+  Save,
+  RotateCcw,
 } from 'lucide-react';
 
 const API_BASE = 'http://127.0.0.1:8000/api/inventory';
 
-const FactoryCard = ({ factory, onSelect }) => (
-  <motion.div 
-    whileHover={{ y: -5 }}
-    className="glass rounded-3xl p-6 cursor-pointer group relative overflow-hidden"
-    onClick={() => onSelect(factory)}
-  >
-    <div className="absolute top-0 right-0 p-6 opacity-5 group-hover:opacity-10 transition-opacity">
-      <Factory size={80} className="bronze-text" />
-    </div>
-    
-    <div className="relative z-10">
-      <div className="w-14 h-14 rounded-2xl bg-primary/10 flex items-center justify-center mb-6 group-hover:bg-primary/20 transition-colors">
-        <Factory size={28} className="bronze-text" />
-      </div>
-      <h4 className="text-xl font-black tracking-tight mb-2 uppercase italic">{factory.name}</h4>
-      <div className="space-y-2 mt-4">
-        <div className="flex items-center gap-3 text-zinc-500 text-[10px] font-bold uppercase tracking-widest">
-          <Phone size={14} className="bronze-text" />
-          {factory.mobile}
-        </div>
-        <div className="flex items-center gap-3 text-zinc-500 text-[10px] font-bold uppercase tracking-widest">
-          <MapPin size={14} className="bronze-text" />
-          {factory.address || 'No Address'}
-        </div>
-      </div>
-      
-      <div className="mt-8 flex items-center justify-between">
-        <div className="flex flex-col">
-          <span className="text-[9px] font-black text-zinc-600 uppercase tracking-widest">Rolls Received</span>
-          <span className="text-lg font-black bronze-text">{(factory.rolls || []).length}</span>
-        </div>
-        <button className="p-3 rounded-xl bg-white/5 hover:bg-primary/20 text-zinc-500 hover:text-primary transition-all">
-          <ChevronRight size={18} />
-        </button>
-      </div>
-    </div>
-  </motion.div>
-);
+const fmt = (n) => `PKR ${Number(n || 0).toLocaleString('en-PK')}`;
 
+// ─── Factory List Card ────────────────────────────────────────────────────────
+const FactoryCard = ({ factory, onSelect }) => {
+  const balance = factory.balance_due || 0;
+  const hasBalance = balance > 0;
+
+  return (
+    <motion.div
+      whileHover={{ y: -6 }}
+      className="glass rounded-3xl p-6 cursor-pointer group relative overflow-hidden"
+      onClick={() => onSelect(factory)}
+    >
+      <div className="absolute top-0 right-0 p-6 opacity-5 group-hover:opacity-10 transition-opacity pointer-events-none">
+        <Factory size={80} className="bronze-text" />
+      </div>
+
+      <div className="relative z-10">
+        <div className="flex items-start justify-between mb-4">
+          <div className="w-14 h-14 rounded-2xl bg-primary/10 flex items-center justify-center group-hover:bg-primary/20 transition-colors">
+            <Factory size={28} className="bronze-text" />
+          </div>
+          <span className={`px-3 py-1 rounded-full text-[9px] font-black uppercase tracking-widest ${hasBalance ? 'bg-red-500/10 text-red-400' : 'bg-emerald-500/10 text-emerald-400'}`}>
+            {hasBalance ? `Baaki: ${fmt(balance)}` : 'Clear'}
+          </span>
+        </div>
+
+        <h4 className="text-xl font-black tracking-tight uppercase italic mb-3">{factory.name}</h4>
+        <div className="space-y-1.5">
+          <div className="flex items-center gap-2 text-zinc-500 text-[10px] font-bold uppercase tracking-widest">
+            <Phone size={12} className="bronze-text" /> {factory.mobile}
+          </div>
+          <div className="flex items-center gap-2 text-zinc-500 text-[10px] font-bold uppercase tracking-widest">
+            <MapPin size={12} className="bronze-text" /> {factory.address || 'No Address'}
+          </div>
+        </div>
+
+        <div className="mt-6 pt-4 border-t border-border/30 grid grid-cols-3 gap-2">
+          <div className="text-center">
+            <p className="text-[9px] font-black text-zinc-600 uppercase tracking-widest">Rolls</p>
+            <p className="text-base font-black bronze-text">{(factory.rolls || []).length}</p>
+          </div>
+          <div className="text-center">
+            <p className="text-[9px] font-black text-zinc-600 uppercase tracking-widest">Paid</p>
+            <p className="text-base font-black text-emerald-400">{fmt(factory.total_paid)}</p>
+          </div>
+          <div className="text-center">
+            <p className="text-[9px] font-black text-zinc-600 uppercase tracking-widest">Total</p>
+            <p className="text-base font-black text-zinc-300">{fmt(factory.total_goods_value)}</p>
+          </div>
+        </div>
+
+        <div className="mt-4 flex justify-end">
+          <button className="p-2 rounded-xl bg-white/5 hover:bg-primary/20 text-zinc-500 hover:text-primary transition-all">
+            <ChevronRight size={16} />
+          </button>
+        </div>
+      </div>
+    </motion.div>
+  );
+};
+
+// ─── Factory Detail View ──────────────────────────────────────────────────────
 const FactoryDetails = ({ factory, onBack, onRefresh }) => {
-  const [activeTab, setActiveTab] = useState('Mall'); // Mall, Payments
-  const [amount, setAmount] = useState('');
-  const [remarks, setRemarks] = useState('');
+  const [activeTab, setActiveTab] = useState('maal');
+  const [sidePanel, setSidePanel] = useState('payment'); // 'maal' | 'payment'
   const { id: shopId } = useParams();
 
-  const handlePostPayment = async () => {
-    if (!amount) return;
+  // Add Roll form
+  const today = new Date().toISOString().split('T')[0];
+  const [rollForm, setRollForm] = useState({
+    roll_id: '', category: 'carpet', product_type: '', design: '', color: '',
+    length: '', width: '', quantity: 1, unit_price: '', received_date: today,
+  });
+  const [rollLoading, setRollLoading] = useState(false);
+  const [rollError, setRollError] = useState('');
+
+  // Payment form
+  const [payAmount, setPayAmount] = useState('');
+  const [payRemarks, setPayRemarks] = useState('');
+  const [payLoading, setPayLoading] = useState(false);
+
+  // Auto-compute total_price
+  const computedTotal = useMemo(() => {
+    const up = parseFloat(rollForm.unit_price) || 0;
+    const len = parseFloat(rollForm.length) || 0;
+    const qty = parseInt(rollForm.quantity) || 1;
+    const isBulk = ['mate', 'qaleen'].includes(rollForm.category);
+    return isBulk ? up * qty : up * len;
+  }, [rollForm.unit_price, rollForm.length, rollForm.quantity, rollForm.category]);
+
+  // Date-wise grouped rolls
+  const dateGroupedRolls = useMemo(() => {
+    const rolls = factory.rolls || [];
+    const groups = {};
+    rolls.forEach(r => {
+      const d = r.received_date || r.created_at?.split('T')[0] || 'Unknown';
+      if (!groups[d]) groups[d] = [];
+      groups[d].push(r);
+    });
+    // Sort dates descending
+    return Object.entries(groups).sort(([a], [b]) => b.localeCompare(a));
+  }, [factory.rolls]);
+
+  const totalGoods = factory.total_goods_value || 0;
+  const totalPaid = factory.total_paid || 0;
+  const balanceDue = factory.balance_due || 0;
+
+  const handleAddRoll = async (e) => {
+    e.preventDefault();
+    setRollError('');
+    if (!rollForm.product_type) { setRollError('Type zaroor darj karein'); return; }
+    setRollLoading(true);
+    try {
+      const isBulk = ['mate', 'qaleen'].includes(rollForm.category);
+      const rollId = rollForm.roll_id || `${rollForm.category.toUpperCase()}-${Date.now()}`;
+      const body = {
+        roll_id: rollId,
+        category: rollForm.category,
+        product_type: rollForm.product_type,
+        design: rollForm.design || '',
+        color: rollForm.color || '',
+        length: isBulk ? 0 : parseFloat(rollForm.length) || 0,
+        width: isBulk ? 0 : parseFloat(rollForm.width) || 0,
+        quantity: isBulk ? parseInt(rollForm.quantity) || 1 : 1,
+        factory: factory.id,
+        unit_price: parseFloat(rollForm.unit_price) || 0,
+        total_price: computedTotal,
+        received_date: rollForm.received_date || today,
+        status: 'In Stock',
+      };
+      const resp = await fetch(`${API_BASE}/rolls/?shop=${shopId}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      });
+      if (resp.ok) {
+        onRefresh();
+        setRollForm({ roll_id: '', category: 'carpet', product_type: '', design: '', color: '', length: '', width: '', quantity: 1, unit_price: '', received_date: today });
+      } else {
+        const err = await resp.json();
+        setRollError(Object.values(err).flat().join(', '));
+      }
+    } catch (err) {
+      setRollError('Server se connection fail. Backend chal raha hai?');
+    }
+    setRollLoading(false);
+  };
+
+  const handlePostPayment = async (e) => {
+    e.preventDefault();
+    if (!payAmount) return;
+    setPayLoading(true);
     try {
       const resp = await fetch(`${API_BASE}/factory-payments/?shop=${shopId}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           factory: factory.id,
-          amount: `PKR ${amount}`,
-          remarks: remarks || 'No remarks',
-          date: new Date().toLocaleDateString(),
+          amount: `PKR ${payAmount}`,
+          remarks: payRemarks || 'No remarks',
+          date: new Date().toLocaleDateString('en-PK'),
           month: new Date().toLocaleString('default', { month: 'long' }),
-        })
+        }),
       });
-      if (resp.ok) {
-        onRefresh();
-        setAmount('');
-        setRemarks('');
-      }
-    } catch (err) {
-      console.error("Payment failed", err);
-    }
+      if (resp.ok) { onRefresh(); setPayAmount(''); setPayRemarks(''); }
+    } catch (err) { console.error(err); }
+    setPayLoading(false);
   };
 
   const deletePayment = async (payId) => {
-    if (window.confirm('Delete this payment record?')) {
-      try {
-        await fetch(`${API_BASE}/factory-payments/${payId}/?shop=${shopId}`, { method: 'DELETE' });
-        onRefresh();
-      } catch (err) {
-        console.error("Delete failed", err);
-      }
-    }
+    if (!window.confirm('Yeh payment delete karna chahte hain?')) return;
+    await fetch(`${API_BASE}/factory-payments/${payId}/?shop=${shopId}`, { method: 'DELETE' });
+    onRefresh();
   };
+
+  const deleteRoll = async (rollId) => {
+    if (!window.confirm('Yeh roll delete karna chahte hain?')) return;
+    await fetch(`${API_BASE}/rolls/${rollId}/?shop=${shopId}`, { method: 'DELETE' });
+    onRefresh();
+  };
+
+  const isBulkCategory = ['mate', 'qaleen'].includes(rollForm.category);
 
   return (
     <div className="space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-500">
-      <header className="flex items-center justify-between">
-        <div className="flex items-center gap-6">
-          <button onClick={onBack} className="w-12 h-12 rounded-2xl bg-white/5 flex items-center justify-center hover:bg-primary/20 transition-colors group">
-            <ArrowLeft size={24} className="bronze-text group-hover:scale-110 transition-transform" />
+      {/* Header */}
+      <header className="flex items-center justify-between flex-wrap gap-4">
+        <div className="flex items-center gap-5">
+          <button onClick={onBack} className="w-11 h-11 rounded-2xl bg-white/5 flex items-center justify-center hover:bg-primary/20 transition-colors group">
+            <ArrowLeft size={22} className="bronze-text group-hover:scale-110 transition-transform" />
           </button>
           <div>
             <h3 className="text-3xl font-black tracking-tighter uppercase italic">{factory.name}</h3>
-            <p className="text-[10px] text-zinc-500 font-bold uppercase tracking-[0.2em] mt-1">{factory.mobile} • {factory.address}</p>
+            <p className="text-[10px] text-zinc-500 font-bold uppercase tracking-[0.2em] mt-0.5">
+              {factory.mobile} {factory.address ? `• ${factory.address}` : ''}
+            </p>
           </div>
         </div>
-        
+
+        {/* Tab switcher */}
         <div className="flex gap-2 glass p-1 rounded-2xl">
-          <button 
-            onClick={() => setActiveTab('Mall')}
-            className={`px-6 py-2.5 rounded-xl text-xs font-black uppercase tracking-widest transition-all ${activeTab === 'Mall' ? 'bg-primary text-primary-foreground shadow-lg' : 'text-zinc-500 hover:text-white'}`}
-          >
-            Mall Detail
+          <button onClick={() => setActiveTab('maal')}
+            className={`px-5 py-2.5 rounded-xl text-xs font-black uppercase tracking-widest transition-all ${activeTab === 'maal' ? 'bg-primary text-primary-foreground shadow-lg' : 'text-zinc-500 hover:text-white'}`}>
+            Maal Received
           </button>
-          <button 
-            onClick={() => setActiveTab('Payments')}
-            className={`px-6 py-2.5 rounded-xl text-xs font-black uppercase tracking-widest transition-all ${activeTab === 'Payments' ? 'bg-primary text-primary-foreground shadow-lg' : 'text-zinc-500 hover:text-white'}`}
-          >
+          <button onClick={() => setActiveTab('payments')}
+            className={`px-5 py-2.5 rounded-xl text-xs font-black uppercase tracking-widest transition-all ${activeTab === 'payments' ? 'bg-primary text-primary-foreground shadow-lg' : 'text-zinc-500 hover:text-white'}`}>
             Payment History
           </button>
         </div>
       </header>
 
+      {/* Summary Bar */}
+      <div className="grid grid-cols-3 gap-4">
+        {[
+          { label: 'Total Maal', value: fmt(totalGoods), icon: Package, color: 'text-zinc-300', bg: 'bg-white/5' },
+          { label: 'Total Paid', value: fmt(totalPaid), icon: CheckCircle, color: 'text-emerald-400', bg: 'bg-emerald-500/5' },
+          { label: 'Baaki Amount', value: fmt(balanceDue), icon: AlertCircle, color: balanceDue > 0 ? 'text-red-400' : 'text-emerald-400', bg: balanceDue > 0 ? 'bg-red-500/5' : 'bg-emerald-500/5' },
+        ].map(({ label, value, icon: Icon, color, bg }) => (
+          <div key={label} className={`glass rounded-2xl p-5 ${bg} border border-border/30`}>
+            <div className="flex items-center gap-3 mb-3">
+              <Icon size={18} className={color} />
+              <span className="text-[10px] font-black uppercase tracking-widest text-zinc-500">{label}</span>
+            </div>
+            <p className={`text-2xl font-black tracking-tighter ${color}`}>{value}</p>
+          </div>
+        ))}
+      </div>
+
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-        {/* Main Content Area (2/3) */}
-        <div className="lg:col-span-2 space-y-8">
-          {activeTab === 'Mall' ? (
-            <div className="glass rounded-[2.5rem] p-10">
-              <div className="flex items-center gap-4 mb-8">
-                <Package size={24} className="bronze-text" />
-                <h4 className="text-2xl font-black uppercase tracking-tight italic">Goods <span className="bronze-text">Received</span></h4>
-              </div>
-              
-              <div className="space-y-4 max-h-[600px] overflow-y-auto pr-4 scrollbar-thin scrollbar-thumb-primary/20">
-                {(factory.rolls || []).length > 0 ? (
-                  factory.rolls.map((roll, i) => (
-                    <div key={roll.id || i} className="flex items-center justify-between p-5 rounded-3xl bg-white/5 border border-border/50 group hover:border-primary/30 transition-all">
-                      <div className="flex items-center gap-6">
-                        <div className="w-12 h-12 rounded-xl bg-primary/5 flex items-center justify-center">
-                          <Package size={20} className="text-primary/40 group-hover:text-primary transition-colors" />
+        {/* Main Content (2/3) */}
+        <div className="lg:col-span-2">
+          <AnimatePresence mode="wait">
+            {activeTab === 'maal' ? (
+              <motion.div key="maal" initial={{ opacity: 0, x: -10 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: 10 }}
+                className="glass rounded-[2.5rem] p-8">
+                <div className="flex items-center gap-3 mb-6">
+                  <Package size={22} className="bronze-text" />
+                  <h4 className="text-xl font-black uppercase tracking-tight italic">
+                    Maal <span className="bronze-text">Received</span>
+                  </h4>
+                  <span className="ml-auto px-3 py-1 rounded-full bg-primary/10 text-primary text-[10px] font-black uppercase tracking-widest">
+                    {(factory.rolls || []).length} Rolls
+                  </span>
+                </div>
+
+                <div className="space-y-6 max-h-[580px] overflow-y-auto pr-2 scrollbar-thin scrollbar-thumb-primary/20">
+                  {dateGroupedRolls.length > 0 ? (
+                    dateGroupedRolls.map(([date, rolls]) => {
+                      const dateTotal = rolls.reduce((s, r) => s + (r.total_price || 0), 0);
+                      return (
+                        <div key={date}>
+                          {/* Date Header */}
+                          <div className="flex items-center justify-between mb-3 px-1">
+                            <div className="flex items-center gap-3">
+                              <Calendar size={14} className="text-primary/60" />
+                              <span className="text-xs font-black text-zinc-400 uppercase tracking-widest">{date}</span>
+                              <span className="text-[9px] px-2 py-0.5 rounded-full bg-white/5 border border-border/30 font-bold text-zinc-600">
+                                {rolls.length} {rolls.length === 1 ? 'roll' : 'rolls'}
+                              </span>
+                            </div>
+                            <span className="text-xs font-black bronze-text">{fmt(dateTotal)}</span>
+                          </div>
+
+                          {/* Rolls for this date */}
+                          <div className="space-y-2">
+                            {rolls.map((roll) => (
+                              <div key={roll.id}
+                                className="flex items-center gap-4 p-4 rounded-2xl bg-white/5 border border-border/30 group hover:border-primary/30 transition-all">
+                                <div className="w-10 h-10 rounded-xl bg-primary/5 flex items-center justify-center flex-shrink-0">
+                                  <Layers size={16} className="text-primary/40 group-hover:text-primary transition-colors" />
+                                </div>
+                                <div className="flex-1 min-w-0">
+                                  <div className="flex items-center gap-2 flex-wrap">
+                                    <span className="font-black text-sm uppercase tracking-tight">{roll.roll_id}</span>
+                                    <span className="text-[9px] px-2 py-0.5 rounded-full bg-white/10 text-zinc-400 font-bold">{roll.category}</span>
+                                    <span className={`text-[9px] px-2 py-0.5 rounded-full font-black ${roll.status === 'In Stock' ? 'bg-emerald-500/10 text-emerald-400' : 'bg-zinc-500/10 text-zinc-500'}`}>
+                                      {roll.status}
+                                    </span>
+                                  </div>
+                                  <p className="text-[10px] text-zinc-500 font-bold uppercase tracking-widest mt-1 truncate">
+                                    {[roll.product_type, roll.design, roll.color].filter(Boolean).join(' • ')}
+                                    {roll.length > 0 ? ` • ${roll.length}×${roll.width} ft` : ''}
+                                    {roll.quantity > 1 ? ` • ${roll.quantity} pcs` : ''}
+                                  </p>
+                                </div>
+                                <div className="text-right flex-shrink-0">
+                                  {roll.unit_price > 0 && (
+                                    <p className="text-[9px] text-zinc-600 font-bold">
+                                      {fmt(roll.unit_price)}/{roll.length > 0 ? 'ft' : 'pc'}
+                                    </p>
+                                  )}
+                                  <p className="font-black text-sm bronze-text">{fmt(roll.total_price)}</p>
+                                </div>
+                                <button onClick={() => deleteRoll(roll.id)}
+                                  className="p-2 rounded-xl bg-red-500/0 text-red-500/0 group-hover:bg-red-500/10 group-hover:text-red-500/60 hover:!text-red-500 transition-all">
+                                  <Trash2 size={14} />
+                                </button>
+                              </div>
+                            ))}
+                          </div>
                         </div>
-                        <div>
-                          <p className="font-black text-sm uppercase tracking-tight">{roll.roll_id} <span className="text-zinc-500 font-medium lowercase ml-2">({roll.product_type})</span></p>
-                          <p className="text-[10px] text-zinc-500 font-bold uppercase tracking-widest mt-1">{roll.design} • {roll.color} • {roll.length}x{roll.width}</p>
-                        </div>
-                      </div>
-                      <div className="text-right">
-                        <span className={`px-3 py-1 rounded-full text-[9px] font-black uppercase tracking-widest ${roll.status === 'In Stock' ? 'bg-emerald-500/10 text-emerald-500' : 'bg-primary/10 text-primary'}`}>
-                          {roll.status}
-                        </span>
-                        <p className="text-[9px] text-zinc-600 font-bold mt-2 uppercase tracking-widest">Added {new Date(roll.created_at).toLocaleDateString()}</p>
-                      </div>
+                      );
+                    })
+                  ) : (
+                    <div className="text-center py-20 rounded-3xl border border-dashed border-border/50">
+                      <Package size={48} className="mx-auto text-zinc-700 mb-4 opacity-20" />
+                      <p className="text-zinc-500 font-bold italic">Is factory se abhi tak koi maal register nahi hua.</p>
+                      <p className="text-zinc-600 text-xs mt-1">Sidebar se "Maal Add Karein" ka form use karein.</p>
                     </div>
-                  ))
-                ) : (
-                  <div className="text-center py-20 bg-white/5 rounded-3xl border border-dashed border-border">
-                    <Package size={48} className="mx-auto text-zinc-700 mb-4 opacity-20" />
-                    <p className="text-zinc-500 font-bold italic">No goods have been recorded from this factory yet.</p>
+                  )}
+                </div>
+
+                {/* Grand Total Row */}
+                {(factory.rolls || []).length > 0 && (
+                  <div className="mt-6 pt-4 border-t border-border/30 flex items-center justify-between">
+                    <span className="text-xs font-black uppercase tracking-widest text-zinc-500">Total Maal Ka Hisaab</span>
+                    <span className="text-xl font-black bronze-text">{fmt(totalGoods)}</span>
                   </div>
                 )}
-              </div>
-            </div>
-          ) : (
-            <div className="glass rounded-[2.5rem] p-10">
-              <div className="flex items-center gap-4 mb-8">
-                <History size={24} className="bronze-text" />
-                <h4 className="text-2xl font-black uppercase tracking-tight italic">Payment <span className="bronze-text">Archive</span></h4>
-              </div>
-              
-              <div className="space-y-4 max-h-[600px] overflow-y-auto pr-4 scrollbar-thin scrollbar-thumb-primary/20">
-                {(factory.payments || []).length > 0 ? (
-                  factory.payments.map((pay, i) => (
-                    <motion.div 
-                      key={pay.id || i}
-                      initial={{ opacity: 0, x: -10 }}
-                      animate={{ opacity: 1, x: 0 }}
-                      className="flex items-center justify-between p-6 rounded-3xl bg-white/5 border border-border/50 group hover:border-primary/30 transition-all"
-                    >
-                      <div className="flex items-center gap-6">
-                        <div className="w-14 h-14 rounded-2xl bg-emerald-500/10 flex items-center justify-center">
-                          <Receipt size={24} className="text-emerald-500" />
+              </motion.div>
+            ) : (
+              <motion.div key="payments" initial={{ opacity: 0, x: 10 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -10 }}
+                className="glass rounded-[2.5rem] p-8">
+                <div className="flex items-center gap-3 mb-6">
+                  <History size={22} className="bronze-text" />
+                  <h4 className="text-xl font-black uppercase tracking-tight italic">
+                    Payment <span className="bronze-text">History</span>
+                  </h4>
+                  <span className="ml-auto px-3 py-1 rounded-full bg-emerald-500/10 text-emerald-400 text-[10px] font-black uppercase tracking-widest">
+                    {(factory.payments || []).length} Payments
+                  </span>
+                </div>
+
+                <div className="space-y-3 max-h-[580px] overflow-y-auto pr-2 scrollbar-thin scrollbar-thumb-primary/20">
+                  {(factory.payments || []).length > 0 ? (
+                    [...(factory.payments || [])].reverse().map((pay, i) => (
+                      <motion.div key={pay.id || i}
+                        initial={{ opacity: 0, y: -6 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: i * 0.03 }}
+                        className="flex items-center gap-4 p-5 rounded-2xl bg-white/5 border border-border/30 group hover:border-emerald-500/20 transition-all">
+                        <div className="w-12 h-12 rounded-2xl bg-emerald-500/10 flex items-center justify-center flex-shrink-0">
+                          <Receipt size={20} className="text-emerald-400" />
                         </div>
-                        <div>
+                        <div className="flex-1">
                           <p className="font-black text-sm uppercase tracking-tight italic">{pay.remarks}</p>
-                          <p className="text-[10px] text-zinc-500 font-bold uppercase tracking-widest mt-1">{pay.date} • {pay.month}</p>
+                          <p className="text-[10px] text-zinc-500 font-bold uppercase tracking-widest mt-1">
+                            {pay.date} • {pay.month}
+                          </p>
                         </div>
-                      </div>
-                      <div className="flex items-center gap-6">
-                        <p className="text-2xl font-black bronze-text tracking-tighter italic">{pay.amount}</p>
-                        <button 
-                          onClick={() => deletePayment(pay.id)}
-                          className="p-2.5 rounded-xl bg-red-500/5 text-red-500/0 group-hover:text-red-500/40 hover:text-red-500 hover:bg-red-500/10 transition-all"
-                        >
-                          <Trash2 size={16} />
-                        </button>
-                      </div>
-                    </motion.div>
-                  ))
-                ) : (
-                  <div className="text-center py-20 bg-white/5 rounded-3xl border border-dashed border-border">
-                    <Receipt size={48} className="mx-auto text-zinc-700 mb-4 opacity-20" />
-                    <p className="text-zinc-500 font-bold italic">No payment records found for this factory.</p>
+                        <div className="flex items-center gap-4">
+                          <p className="text-xl font-black text-emerald-400 tracking-tighter">{pay.amount}</p>
+                          <button onClick={() => deletePayment(pay.id)}
+                            className="p-2 rounded-xl text-red-500/0 group-hover:bg-red-500/10 group-hover:text-red-500/50 hover:!text-red-500 transition-all">
+                            <Trash2 size={14} />
+                          </button>
+                        </div>
+                      </motion.div>
+                    ))
+                  ) : (
+                    <div className="text-center py-20 rounded-3xl border border-dashed border-border/50">
+                      <Receipt size={48} className="mx-auto text-zinc-700 mb-4 opacity-20" />
+                      <p className="text-zinc-500 font-bold italic">Abhi tak koi payment record nahi ki gayi.</p>
+                    </div>
+                  )}
+                </div>
+
+                {/* Total Paid */}
+                {(factory.payments || []).length > 0 && (
+                  <div className="mt-6 pt-4 border-t border-border/30 flex justify-between items-center">
+                    <span className="text-xs font-black uppercase tracking-widest text-zinc-500">Total Paid</span>
+                    <span className="text-xl font-black text-emerald-400">{fmt(totalPaid)}</span>
                   </div>
                 )}
-              </div>
-            </div>
-          )}
+              </motion.div>
+            )}
+          </AnimatePresence>
         </div>
 
-        {/* Sidebar (1/3) - Actions */}
-        <div className="space-y-8">
-          <div className="glass p-8 rounded-[2.5rem] relative overflow-hidden">
-            <div className="absolute top-0 right-0 p-6 opacity-5">
-              <Calculator size={80} className="bronze-text" />
-            </div>
-            <div className="relative z-10 space-y-6">
-              <div className="flex items-center gap-4">
-                <div className="w-12 h-12 rounded-2xl bg-primary/10 flex items-center justify-center">
-                  <Calculator size={24} className="bronze-text" />
-                </div>
-                <h4 className="text-xl font-black uppercase tracking-tight italic">Record <span className="bronze-text">Payment</span></h4>
-              </div>
-              
-              <div className="space-y-4">
-                <div className="space-y-2">
-                  <label className="text-[10px] font-bold text-zinc-500 uppercase tracking-widest ml-1">Payment Amount (PKR)</label>
-                  <input 
-                    type="number" 
-                    value={amount}
-                    onChange={(e) => setAmount(e.target.value)}
-                    className="w-full bg-white/5 border border-border rounded-2xl px-5 py-4 focus:border-primary outline-none transition-all font-black text-lg"
-                    placeholder="0.00"
-                  />
-                </div>
-                <div className="space-y-2">
-                  <label className="text-[10px] font-bold text-zinc-500 uppercase tracking-widest ml-1">Note / Remarks</label>
-                  <textarea 
-                    value={remarks}
-                    onChange={(e) => setRemarks(e.target.value)}
-                    className="w-full bg-white/5 border border-border rounded-2xl px-5 py-4 focus:border-primary outline-none transition-all font-medium text-sm h-32 resize-none"
-                    placeholder="e.g. Clearing balance for Jan stock..."
-                  />
-                </div>
-                <button 
-                  onClick={handlePostPayment}
-                  disabled={!amount}
-                  className="w-full bg-primary text-primary-foreground py-5 rounded-2xl font-black uppercase tracking-[0.2em] shadow-xl shadow-primary/20 hover:scale-[1.02] active:scale-[0.98] transition-all disabled:opacity-50 disabled:grayscale"
-                >
-                  Post Payment
-                </button>
-              </div>
-            </div>
+        {/* Sidebar (1/3) */}
+        <div className="space-y-6">
+          {/* Panel Switcher */}
+          <div className="flex gap-2 glass p-1 rounded-2xl">
+            <button onClick={() => setSidePanel('maal')}
+              className={`flex-1 py-2.5 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all ${sidePanel === 'maal' ? 'bg-primary text-primary-foreground' : 'text-zinc-500 hover:text-white'}`}>
+              Maal Add
+            </button>
+            <button onClick={() => setSidePanel('payment')}
+              className={`flex-1 py-2.5 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all ${sidePanel === 'payment' ? 'bg-primary text-primary-foreground' : 'text-zinc-500 hover:text-white'}`}>
+              Payment
+            </button>
           </div>
 
-          <div className="glass p-8 rounded-[2.5rem] bg-emerald-500/5 border-emerald-500/20">
-            <div className="flex items-center gap-4 mb-4">
-              <Wallet size={20} className="text-emerald-500" />
-              <h5 className="text-xs font-black uppercase tracking-[0.2em] text-emerald-500">Summary Account</h5>
+          <AnimatePresence mode="wait">
+            {/* Add Roll Panel */}
+            {sidePanel === 'maal' && (
+              <motion.div key="add-maal" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -10 }}
+                className="glass p-6 rounded-[2rem] relative overflow-hidden">
+                <div className="absolute top-0 right-0 p-5 opacity-5 pointer-events-none">
+                  <Package size={70} className="bronze-text" />
+                </div>
+                <div className="relative z-10">
+                  <div className="flex items-center gap-3 mb-5">
+                    <div className="w-10 h-10 rounded-xl bg-primary/10 flex items-center justify-center">
+                      <Plus size={20} className="bronze-text" />
+                    </div>
+                    <h4 className="text-base font-black uppercase tracking-tight italic">
+                      Maal <span className="bronze-text">Add Karein</span>
+                    </h4>
+                  </div>
+
+                  <form onSubmit={handleAddRoll} className="space-y-3">
+                    {/* Category */}
+                    <div className="space-y-1.5">
+                      <label className="text-[9px] font-black text-zinc-500 uppercase tracking-widest">Category</label>
+                      <select value={rollForm.category}
+                        onChange={e => setRollForm({ ...rollForm, category: e.target.value })}
+                        className="w-full bg-white/5 border border-border rounded-xl px-4 py-3 focus:border-primary outline-none text-sm font-bold transition-all">
+                        <option value="carpet">Carpet</option>
+                        <option value="qaleen">Qaleen</option>
+                        <option value="sheet">Sheet</option>
+                        <option value="prayers">Prayer Mat</option>
+                        <option value="mate">Mate</option>
+                        <option value="cut-pieces">Cut Pieces</option>
+                      </select>
+                    </div>
+
+                    {/* Roll ID */}
+                    <div className="space-y-1.5">
+                      <label className="text-[9px] font-black text-zinc-500 uppercase tracking-widest">Roll ID (Optional)</label>
+                      <input type="text" value={rollForm.roll_id}
+                        onChange={e => setRollForm({ ...rollForm, roll_id: e.target.value })}
+                        className="w-full bg-white/5 border border-border rounded-xl px-4 py-3 focus:border-primary outline-none text-sm font-bold transition-all"
+                        placeholder="Auto-generate hoga agar khali raha" />
+                    </div>
+
+                    {/* Type */}
+                    <div className="space-y-1.5">
+                      <label className="text-[9px] font-black text-zinc-500 uppercase tracking-widest">Type *</label>
+                      <input type="text" required value={rollForm.product_type}
+                        onChange={e => setRollForm({ ...rollForm, product_type: e.target.value })}
+                        className="w-full bg-white/5 border border-border rounded-xl px-4 py-3 focus:border-primary outline-none text-sm font-bold transition-all"
+                        placeholder="e.g. Premium, Economy..." />
+                    </div>
+
+                    {/* Design & Color in row */}
+                    <div className="grid grid-cols-2 gap-2">
+                      <div className="space-y-1.5">
+                        <label className="text-[9px] font-black text-zinc-500 uppercase tracking-widest">Design</label>
+                        <input type="text" value={rollForm.design}
+                          onChange={e => setRollForm({ ...rollForm, design: e.target.value })}
+                          className="w-full bg-white/5 border border-border rounded-xl px-3 py-3 focus:border-primary outline-none text-sm font-bold transition-all"
+                          placeholder="Design..." />
+                      </div>
+                      <div className="space-y-1.5">
+                        <label className="text-[9px] font-black text-zinc-500 uppercase tracking-widest">Color</label>
+                        <input type="text" value={rollForm.color}
+                          onChange={e => setRollForm({ ...rollForm, color: e.target.value })}
+                          className="w-full bg-white/5 border border-border rounded-xl px-3 py-3 focus:border-primary outline-none text-sm font-bold transition-all"
+                          placeholder="Color..." />
+                      </div>
+                    </div>
+
+                    {/* Length/Width or Quantity */}
+                    {isBulkCategory ? (
+                      <div className="space-y-1.5">
+                        <label className="text-[9px] font-black text-zinc-500 uppercase tracking-widest">Quantity (Pieces)</label>
+                        <input type="number" min="1" value={rollForm.quantity}
+                          onChange={e => setRollForm({ ...rollForm, quantity: e.target.value })}
+                          className="w-full bg-white/5 border border-border rounded-xl px-4 py-3 focus:border-primary outline-none text-sm font-bold transition-all"
+                          placeholder="Kitne pieces..." />
+                      </div>
+                    ) : (
+                      <div className="grid grid-cols-2 gap-2">
+                        <div className="space-y-1.5">
+                          <label className="text-[9px] font-black text-zinc-500 uppercase tracking-widest">Length (ft)</label>
+                          <input type="number" step="0.1" value={rollForm.length}
+                            onChange={e => setRollForm({ ...rollForm, length: e.target.value })}
+                            className="w-full bg-white/5 border border-border rounded-xl px-3 py-3 focus:border-primary outline-none text-sm font-bold transition-all"
+                            placeholder="ft" />
+                        </div>
+                        <div className="space-y-1.5">
+                          <label className="text-[9px] font-black text-zinc-500 uppercase tracking-widest">Width (ft)</label>
+                          <input type="number" step="0.1" value={rollForm.width}
+                            onChange={e => setRollForm({ ...rollForm, width: e.target.value })}
+                            className="w-full bg-white/5 border border-border rounded-xl px-3 py-3 focus:border-primary outline-none text-sm font-bold transition-all"
+                            placeholder="ft" />
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Unit Price */}
+                    <div className="space-y-1.5">
+                      <label className="text-[9px] font-black text-zinc-500 uppercase tracking-widest">
+                        Rate (PKR per {isBulkCategory ? 'piece' : 'ft'})
+                      </label>
+                      <div className="relative">
+                        <span className="absolute left-4 top-1/2 -translate-y-1/2 text-xs font-black text-zinc-500">PKR</span>
+                        <input type="number" step="1" value={rollForm.unit_price}
+                          onChange={e => setRollForm({ ...rollForm, unit_price: e.target.value })}
+                          className="w-full bg-white/5 border border-border rounded-xl pl-14 pr-4 py-3 focus:border-primary outline-none text-sm font-black transition-all"
+                          placeholder="0" />
+                      </div>
+                    </div>
+
+                    {/* Auto Total */}
+                    {computedTotal > 0 && (
+                      <div className="bg-primary/5 border border-primary/20 rounded-xl px-4 py-2.5 flex justify-between items-center">
+                        <span className="text-[9px] font-black text-zinc-400 uppercase tracking-widest">Total Amount</span>
+                        <span className="font-black bronze-text text-sm">{fmt(computedTotal)}</span>
+                      </div>
+                    )}
+
+                    {/* Date */}
+                    <div className="space-y-1.5">
+                      <label className="text-[9px] font-black text-zinc-500 uppercase tracking-widest">Received Date</label>
+                      <input type="date" value={rollForm.received_date}
+                        onChange={e => setRollForm({ ...rollForm, received_date: e.target.value })}
+                        className="w-full bg-white/5 border border-border rounded-xl px-4 py-3 focus:border-primary outline-none text-sm font-bold transition-all" />
+                    </div>
+
+                    {rollError && (
+                      <p className="text-red-400 text-xs font-bold">{rollError}</p>
+                    )}
+
+                    <button type="submit" disabled={rollLoading}
+                      className="w-full bg-primary text-primary-foreground py-4 rounded-xl font-black uppercase tracking-[0.15em] text-xs shadow-xl shadow-primary/20 hover:scale-[1.02] active:scale-[0.98] transition-all disabled:opacity-50">
+                      {rollLoading ? 'Save Ho Raha Hai...' : 'Maal Register Karein'}
+                    </button>
+                  </form>
+                </div>
+              </motion.div>
+            )}
+
+            {/* Payment Panel */}
+            {sidePanel === 'payment' && (
+              <motion.div key="add-payment" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -10 }}
+                className="glass p-6 rounded-[2rem] relative overflow-hidden">
+                <div className="absolute top-0 right-0 p-5 opacity-5 pointer-events-none">
+                  <Calculator size={70} className="bronze-text" />
+                </div>
+                <div className="relative z-10">
+                  <div className="flex items-center gap-3 mb-5">
+                    <div className="w-10 h-10 rounded-xl bg-primary/10 flex items-center justify-center">
+                      <Calculator size={20} className="bronze-text" />
+                    </div>
+                    <h4 className="text-base font-black uppercase tracking-tight italic">
+                      Payment <span className="bronze-text">Record Karein</span>
+                    </h4>
+                  </div>
+
+                  {/* Balance reminder */}
+                  {balanceDue > 0 && (
+                    <div className="mb-4 px-4 py-3 bg-red-500/5 border border-red-500/20 rounded-xl">
+                      <p className="text-[9px] font-black text-zinc-500 uppercase tracking-widest">Baaki Amount</p>
+                      <p className="text-lg font-black text-red-400 mt-0.5">{fmt(balanceDue)}</p>
+                    </div>
+                  )}
+
+                  <form onSubmit={handlePostPayment} className="space-y-4">
+                    <div className="space-y-1.5">
+                      <label className="text-[9px] font-black text-zinc-500 uppercase tracking-widest">Amount (PKR)</label>
+                      <div className="relative">
+                        <span className="absolute left-4 top-1/2 -translate-y-1/2 text-xs font-black text-zinc-500">PKR</span>
+                        <input type="number" value={payAmount}
+                          onChange={e => setPayAmount(e.target.value)}
+                          className="w-full bg-white/5 border border-border rounded-xl pl-14 pr-4 py-4 focus:border-primary outline-none text-lg font-black transition-all"
+                          placeholder="0" />
+                      </div>
+                    </div>
+                    <div className="space-y-1.5">
+                      <label className="text-[9px] font-black text-zinc-500 uppercase tracking-widest">Remarks</label>
+                      <textarea value={payRemarks}
+                        onChange={e => setPayRemarks(e.target.value)}
+                        className="w-full bg-white/5 border border-border rounded-xl px-4 py-3 focus:border-primary outline-none text-sm font-medium h-24 resize-none transition-all"
+                        placeholder="e.g. January ka hisaab..." />
+                    </div>
+                    <button type="submit" disabled={!payAmount || payLoading}
+                      className="w-full bg-primary text-primary-foreground py-4 rounded-xl font-black uppercase tracking-[0.15em] text-xs shadow-xl shadow-primary/20 hover:scale-[1.02] active:scale-[0.98] transition-all disabled:opacity-50 disabled:grayscale">
+                      {payLoading ? 'Save Ho Raha Hai...' : 'Payment Post Karein'}
+                    </button>
+                  </form>
+                </div>
+              </motion.div>
+            )}
+          </AnimatePresence>
+
+          {/* Account Summary */}
+          <div className="glass p-5 rounded-2xl bg-emerald-500/5 border-emerald-500/10">
+            <div className="flex items-center gap-3 mb-4">
+              <Wallet size={18} className="text-emerald-500" />
+              <h5 className="text-xs font-black uppercase tracking-[0.2em] text-emerald-500">Khata Summary</h5>
             </div>
-            <div className="space-y-4">
-              <div className="flex justify-between items-center py-2 border-b border-emerald-500/10">
-                <span className="text-[10px] font-bold text-zinc-500 uppercase">Total Items</span>
-                <span className="font-black text-emerald-500">{(factory.rolls || []).length}</span>
-              </div>
-              <div className="flex justify-between items-center py-2 border-b border-emerald-500/10">
-                <span className="text-[10px] font-bold text-zinc-500 uppercase">Payments Made</span>
-                <span className="font-black text-emerald-500">{(factory.payments || []).length}</span>
-              </div>
-              <p className="text-[9px] text-zinc-600 font-bold italic mt-4 text-center">System automatically tracks all inventory and financial transactions for audit.</p>
+            <div className="space-y-3">
+              {[
+                { label: 'Total Rolls', val: `${(factory.rolls || []).length} rolls` },
+                { label: 'Total Maal', val: fmt(totalGoods) },
+                { label: 'Total Paid', val: fmt(totalPaid) },
+                { label: 'Baaki', val: fmt(balanceDue), highlight: balanceDue > 0 },
+              ].map(({ label, val, highlight }) => (
+                <div key={label} className="flex justify-between items-center py-1.5 border-b border-emerald-500/10 last:border-0">
+                  <span className="text-[10px] font-bold text-zinc-500 uppercase">{label}</span>
+                  <span className={`font-black text-sm ${highlight ? 'text-red-400' : 'text-emerald-400'}`}>{val}</span>
+                </div>
+              ))}
             </div>
           </div>
         </div>
@@ -284,12 +644,14 @@ const FactoryDetails = ({ factory, onBack, onRefresh }) => {
   );
 };
 
+// ─── Main Module ──────────────────────────────────────────────────────────────
 export default function FactoriesModule() {
   const { id: shopId } = useParams();
-  const [view, setView] = useState('list'); // list, add, details
+  const [view, setView] = useState('list');
   const [factories, setFactories] = useState([]);
   const [selectedFactory, setSelectedFactory] = useState(null);
   const [newFactory, setNewFactory] = useState({ name: '', mobile: '', address: '' });
+  const [loading, setLoading] = useState(false);
 
   const fetchFactories = async () => {
     try {
@@ -302,159 +664,109 @@ export default function FactoriesModule() {
           if (updated) setSelectedFactory(updated);
         }
       }
-    } catch (err) {
-      console.error("Fetch factories failed", err);
-    }
+    } catch (err) { console.error('Fetch factories failed', err); }
   };
 
-  useEffect(() => {
-    fetchFactories();
-  }, []);
+  useEffect(() => { fetchFactories(); }, []);
 
   const handleRegister = async (e) => {
     e.preventDefault();
+    setLoading(true);
     try {
       const resp = await fetch(`${API_BASE}/factories/?shop=${shopId}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(newFactory)
+        body: JSON.stringify(newFactory),
       });
       if (resp.ok) {
-        fetchFactories();
+        await fetchFactories();
         setView('list');
         setNewFactory({ name: '', mobile: '', address: '' });
       }
-    } catch (err) {
-      console.error("Register failed", err);
-    }
-  };
-
-  const handleDeleteFactory = async (id) => {
-    if (window.confirm("Are you sure you want to delete this factory?")) {
-      try {
-        await fetch(`${API_BASE}/factories/${id}/?shop=${shopId}`, { method: 'DELETE' });
-        fetchFactories();
-        setView('list');
-      } catch (err) {
-        console.error("Delete failed", err);
-      }
-    }
+    } catch (err) { console.error('Register failed', err); }
+    setLoading(false);
   };
 
   return (
     <div className="w-full">
       <AnimatePresence mode="wait">
+        {/* ── LIST ── */}
         {view === 'list' && (
-          <motion.div 
-            key="list"
-            initial={{ opacity: 0, y: 10 }}
-            animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0, y: -10 }}
-            className="space-y-10"
-          >
-            <div className="flex justify-between items-center">
+          <motion.div key="list" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -10 }} className="space-y-10">
+            <div className="flex justify-between items-center flex-wrap gap-4">
               <div>
-                <h3 className="text-3xl font-black tracking-tighter uppercase italic">Factory <span className="bronze-text underline decoration-primary/30 underline-offset-8">Partners</span></h3>
-                <p className="text-zinc-500 font-bold uppercase text-[10px] tracking-[0.3em] mt-3 ml-1">Manage your supply network and payment settlements</p>
+                <h3 className="text-3xl font-black tracking-tighter uppercase italic">
+                  Factory <span className="bronze-text underline decoration-primary/30 underline-offset-8">Partners</span>
+                </h3>
+                <p className="text-zinc-500 font-bold uppercase text-[10px] tracking-[0.3em] mt-2 ml-1">
+                  Factories ka maal aur payment record karein
+                </p>
               </div>
-              <button 
-                onClick={() => setView('add')}
-                className="bg-primary text-primary-foreground px-8 py-4 rounded-[1.5rem] font-black text-xs uppercase tracking-widest flex items-center gap-4 shadow-2xl shadow-primary/30 hover:scale-[1.02] active:scale-[0.98] transition-all"
-              >
-                <Plus size={20} strokeWidth={3} />
-                Add New Factory
+              <button onClick={() => setView('add')}
+                className="bg-primary text-primary-foreground px-6 py-3.5 rounded-2xl font-black text-xs uppercase tracking-widest flex items-center gap-3 shadow-2xl shadow-primary/30 hover:scale-[1.02] active:scale-[0.98] transition-all">
+                <Plus size={18} strokeWidth={3} /> New Factory
               </button>
             </div>
-            
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
-              {factories.map((f) => (
-                <FactoryCard 
-                  key={f.id} 
-                  factory={f} 
-                  onSelect={(fact) => {
-                    setSelectedFactory(fact);
-                    setView('details');
-                  }} 
-                />
+
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+              {factories.map(f => (
+                <FactoryCard key={f.id} factory={f} onSelect={(fact) => { setSelectedFactory(fact); setView('details'); }} />
               ))}
               {factories.length === 0 && (
                 <div className="col-span-full py-24 text-center glass rounded-[3rem] border-dashed border-2 border-border/50">
                   <Factory size={64} className="mx-auto text-zinc-800 mb-6 opacity-20" />
-                  <h4 className="text-xl font-black uppercase text-zinc-600 italic">No Factories Registered</h4>
-                  <p className="text-zinc-500 text-sm font-medium mt-2">Start by registering a factory to track your goods and payments.</p>
+                  <h4 className="text-xl font-black uppercase text-zinc-600 italic">Koi Factory Register Nahi</h4>
+                  <p className="text-zinc-500 text-sm font-medium mt-2">Pehle ek factory register karein phir maal track karein.</p>
                 </div>
               )}
             </div>
           </motion.div>
         )}
 
+        {/* ── ADD FACTORY ── */}
         {view === 'add' && (
-          <motion.div 
-            key="add"
-            initial={{ opacity: 0, scale: 0.95 }}
-            animate={{ opacity: 1, scale: 1 }}
-            exit={{ opacity: 0, scale: 0.95 }}
-            className="max-w-xl mx-auto py-10"
-          >
-            <div className="glass p-12 rounded-[3.5rem] relative overflow-hidden">
-              <div className="absolute top-0 right-0 p-12 opacity-5 pointer-events-none">
-                <Plus size={160} className="bronze-text" />
+          <motion.div key="add" initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 0.95 }}
+            className="max-w-lg mx-auto py-10">
+            <div className="glass p-10 rounded-[3rem] relative overflow-hidden">
+              <div className="absolute top-0 right-0 p-10 opacity-5 pointer-events-none">
+                <Factory size={140} className="bronze-text" />
               </div>
-              
-              <button onClick={() => setView('list')} className="absolute top-10 right-10 w-12 h-12 rounded-2xl bg-white/5 flex items-center justify-center text-zinc-500 hover:text-white transition-colors z-20">
-                <X size={24} />
+              <button onClick={() => setView('list')} className="absolute top-8 right-8 w-10 h-10 rounded-xl bg-white/5 flex items-center justify-center text-zinc-500 hover:text-white transition-colors z-20">
+                <X size={20} />
               </button>
-              
               <div className="relative z-10">
-                <h3 className="text-3xl font-black tracking-tight mb-2 uppercase italic">Register <span className="bronze-text">Factory</span></h3>
-                <p className="text-zinc-500 font-bold uppercase text-[10px] tracking-widest mb-10">Enter complete supplier information</p>
-                
-                <form onSubmit={handleRegister} className="space-y-6">
-                  <div className="space-y-2">
-                    <label className="text-[10px] font-bold text-zinc-500 uppercase tracking-widest ml-1">Factory Full Name</label>
-                    <input 
-                      type="text" 
-                      required 
-                      className="w-full bg-white/5 border border-border rounded-2xl px-6 py-4.5 focus:border-primary outline-none transition-all font-black text-lg"
+                <h3 className="text-2xl font-black tracking-tight mb-1 uppercase italic">
+                  Register <span className="bronze-text">Factory</span>
+                </h3>
+                <p className="text-zinc-500 font-bold uppercase text-[10px] tracking-widest mb-8">Supplier ki poori information darj karein</p>
+                <form onSubmit={handleRegister} className="space-y-5">
+                  <div className="space-y-1.5">
+                    <label className="text-[9px] font-black text-zinc-500 uppercase tracking-widest">Factory Ka Naam *</label>
+                    <input type="text" required className="w-full bg-white/5 border border-border rounded-2xl px-5 py-4 focus:border-primary outline-none font-black text-base transition-all"
                       placeholder="e.g. Faisalabad Textile Hub"
-                      value={newFactory.name}
-                      onChange={(e) => setNewFactory({...newFactory, name: e.target.value})}
-                    />
+                      value={newFactory.name} onChange={e => setNewFactory({ ...newFactory, name: e.target.value })} />
                   </div>
-                  
-                  <div className="space-y-2">
-                    <label className="text-[10px] font-bold text-zinc-500 uppercase tracking-widest ml-1">Contact / Mobile Number</label>
+                  <div className="space-y-1.5">
+                    <label className="text-[9px] font-black text-zinc-500 uppercase tracking-widest">Mobile Number *</label>
                     <div className="relative">
-                      <Phone size={20} className="absolute left-6 top-1/2 -translate-y-1/2 text-primary/40" />
-                      <input 
-                        type="tel" 
-                        required 
-                        className="w-full bg-white/5 border border-border rounded-2xl pl-16 pr-6 py-4.5 focus:border-primary outline-none transition-all font-bold"
+                      <Phone size={18} className="absolute left-5 top-1/2 -translate-y-1/2 text-primary/40" />
+                      <input type="tel" required className="w-full bg-white/5 border border-border rounded-2xl pl-14 pr-5 py-4 focus:border-primary outline-none font-bold transition-all"
                         placeholder="03xx-xxxxxxx"
-                        value={newFactory.mobile}
-                        onChange={(e) => setNewFactory({...newFactory, mobile: e.target.value})}
-                      />
+                        value={newFactory.mobile} onChange={e => setNewFactory({ ...newFactory, mobile: e.target.value })} />
                     </div>
                   </div>
-                  
-                  <div className="space-y-2">
-                    <label className="text-[10px] font-bold text-zinc-500 uppercase tracking-widest ml-1">Physical Address</label>
+                  <div className="space-y-1.5">
+                    <label className="text-[9px] font-black text-zinc-500 uppercase tracking-widest">Address</label>
                     <div className="relative">
-                      <MapPin size={20} className="absolute left-6 top-6 text-primary/40" />
-                      <textarea 
-                        className="w-full bg-white/5 border border-border rounded-2xl pl-16 pr-6 py-4.5 focus:border-primary outline-none transition-all font-medium h-32 resize-none"
-                        placeholder="Complete factory location..."
-                        value={newFactory.address}
-                        onChange={(e) => setNewFactory({...newFactory, address: e.target.value})}
-                      />
+                      <MapPin size={18} className="absolute left-5 top-5 text-primary/40" />
+                      <textarea className="w-full bg-white/5 border border-border rounded-2xl pl-14 pr-5 py-4 focus:border-primary outline-none font-medium h-28 resize-none transition-all"
+                        placeholder="Factory ka pata..."
+                        value={newFactory.address} onChange={e => setNewFactory({ ...newFactory, address: e.target.value })} />
                     </div>
                   </div>
-
-                  <button 
-                    type="submit"
-                    className="w-full bg-primary text-primary-foreground py-5 rounded-2xl font-black uppercase tracking-[0.2em] shadow-2xl shadow-primary/20 mt-8 hover:scale-[1.02] active:scale-[0.98] transition-all"
-                  >
-                    Confirm Registration
+                  <button type="submit" disabled={loading}
+                    className="w-full bg-primary text-primary-foreground py-4 rounded-2xl font-black uppercase tracking-[0.15em] shadow-2xl shadow-primary/20 mt-4 hover:scale-[1.02] active:scale-[0.98] transition-all disabled:opacity-50">
+                    {loading ? 'Register Ho Raha Hai...' : 'Factory Register Karein'}
                   </button>
                 </form>
               </div>
@@ -462,10 +774,12 @@ export default function FactoriesModule() {
           </motion.div>
         )}
 
+        {/* ── DETAILS ── */}
         {view === 'details' && selectedFactory && (
-          <FactoryDetails 
-            factory={selectedFactory} 
-            onBack={() => setView('list')} 
+          <FactoryDetails
+            key={`details-${selectedFactory.id}`}
+            factory={selectedFactory}
+            onBack={() => setView('list')}
             onRefresh={fetchFactories}
           />
         )}

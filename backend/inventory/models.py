@@ -45,6 +45,9 @@ class Roll(models.Model):
     quantity = models.IntegerField(default=1) # New field for bulk stock
     status = models.CharField(max_length=50, default='In Stock')
     factory = models.ForeignKey('Factory', related_name='rolls', on_delete=models.SET_NULL, null=True, blank=True)
+    unit_price = models.FloatField(default=0)  # Factory purchase price per meter/piece
+    total_price = models.FloatField(default=0)  # Total purchase cost for this roll
+    received_date = models.CharField(max_length=50, null=True, blank=True)  # Date maal aya
     created_at = models.DateTimeField(auto_now_add=True)
 
     def __str__(self):
