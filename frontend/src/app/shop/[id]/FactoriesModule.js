@@ -125,6 +125,11 @@ const FactoryDetails = ({ factory, onBack, onRefresh, onDelete }) => {
   const [payDate, setPayDate] = useState(today);
   const [payLoading, setPayLoading] = useState(false);
 
+  // Filter state
+  const firstDay = `${today.substring(0, 7)}-01`;
+  const [filterStartDate, setFilterStartDate] = useState(firstDay);
+  const [filterEndDate, setFilterEndDate] = useState(today);
+
   // Auto-compute total_price
   const computedTotal = useMemo(() => {
     const up = parseFloat(rollForm.unit_price) || 0;
@@ -136,17 +141,29 @@ const FactoryDetails = ({ factory, onBack, onRefresh, onDelete }) => {
   }, [rollForm.unit_price, rollForm.length, rollForm.width, rollForm.quantity, rollForm.category]);
 
   // Date-wise grouped rolls
+  const filteredRolls = useMemo(() => {
+    let rolls = factory.rolls || [];
+    if (filterStartDate) rolls = rolls.filter(r => (r.received_date || r.created_at) >= filterStartDate);
+    if (filterEndDate) rolls = rolls.filter(r => (r.received_date || r.created_at) <= filterEndDate);
+    return rolls;
+  }, [factory.rolls, filterStartDate, filterEndDate]);
+
   const dateGroupedRolls = useMemo(() => {
-    const rolls = factory.rolls || [];
     const groups = {};
-    rolls.forEach(r => {
+    filteredRolls.forEach(r => {
       const d = r.received_date || r.created_at?.split('T')[0] || 'Unknown';
       if (!groups[d]) groups[d] = [];
       groups[d].push(r);
     });
-    // Sort dates descending
     return Object.entries(groups).sort(([a], [b]) => b.localeCompare(a));
-  }, [factory.rolls]);
+  }, [filteredRolls]);
+
+  const filteredPayments = useMemo(() => {
+    let pays = factory.payments || [];
+    if (filterStartDate) pays = pays.filter(p => p.date >= filterStartDate);
+    if (filterEndDate) pays = pays.filter(p => p.date <= filterEndDate);
+    return pays;
+  }, [factory.payments, filterStartDate, filterEndDate]);
 
   const totalGoods = factory.total_goods_value || 0;
   const totalPaid = factory.total_paid || 0;
@@ -248,13 +265,16 @@ const FactoryDetails = ({ factory, onBack, onRefresh, onDelete }) => {
     doc.setFontSize(10);
     doc.setFont('helvetica', 'normal');
     doc.text(`Factory: ${factory.name}`, 14, 55);
-    doc.text(`Total Goods Value: PKR ${totalGoods.toLocaleString()}`, 14, 62);
+    const dateRange = (filterStartDate || filterEndDate) ? `Period: ${filterStartDate || '...'} to ${filterEndDate || '...'}` : 'Period: All Time';
+    doc.text(dateRange, 14, 62);
+    const filteredTotal = filteredRolls.reduce((s, r) => s + (r.total_price || 0), 0);
+    doc.text(`Filtered Goods Value: PKR ${filteredTotal.toLocaleString()}`, 14, 69);
     doc.text(`Report Date: ${new Date().toLocaleDateString()}`, 160, 55);
 
     // Maal Received Table
     doc.setFont('helvetica', 'bold');
-    doc.text('GOODS RECEIVED HISTORY (MAAL RECEIVED)', 14, 75);
-    const maalRows = factory.rolls.map((r, i) => [
+    doc.text(`GOODS RECEIVED HISTORY (${(filterStartDate || filterEndDate) ? 'FILTERED' : 'ALL TIME'})`, 14, 85);
+    const maalRows = filteredRolls.map((r, i) => [
       i + 1,
       r.received_date || '-',
       r.roll_id,
@@ -298,14 +318,19 @@ const FactoryDetails = ({ factory, onBack, onRefresh, onDelete }) => {
     doc.setFontSize(10);
     doc.setFont('helvetica', 'normal');
     doc.text(`Factory: ${factory.name}`, 14, 55);
-    doc.text(`Total Paid: PKR ${totalPaid.toLocaleString()}`, 14, 62);
-    doc.text(`Current Balance: PKR ${balanceDue.toLocaleString()}`, 14, 69);
+    const dateRange = (filterStartDate || filterEndDate) ? `Period: ${filterStartDate || '...'} to ${filterEndDate || '...'}` : 'Period: All Time';
+    doc.text(dateRange, 14, 62);
+    const filteredPaid = filteredPayments.reduce((s, p) => {
+      const amt = parseFloat(String(p.amount).replace(/[^0-9.]/g, '')) || 0;
+      return s + amt;
+    }, 0);
+    doc.text(`Filtered Paid Total: PKR ${filteredPaid.toLocaleString()}`, 14, 69);
     doc.text(`Report Date: ${new Date().toLocaleDateString()}`, 160, 55);
 
     // Payment History Table
     doc.setFont('helvetica', 'bold');
-    doc.text('PAYMENT HISTORY TIMELINE', 14, 80);
-    const payRows = (factory.payments || []).map((p, i) => [
+    doc.text(`PAYMENT HISTORY TIMELINE (${(filterStartDate || filterEndDate) ? 'FILTERED' : 'ALL TIME'})`, 14, 85);
+    const payRows = filteredPayments.map((p, i) => [
       i + 1,
       p.date,
       p.remarks,
@@ -400,6 +425,31 @@ const FactoryDetails = ({ factory, onBack, onRefresh, onDelete }) => {
         ))}
       </div>
 
+      {/* Date Filters */}
+      <div className="glass p-6 rounded-[2rem] border border-border/30 flex flex-wrap items-center justify-between gap-6">
+        <div className="flex items-center gap-4">
+          <div className="w-10 h-10 rounded-xl bg-primary/10 flex items-center justify-center">
+            <Calendar size={18} className="bronze-text" />
+          </div>
+          <div>
+            <h5 className="text-[10px] font-black uppercase tracking-widest text-zinc-500">History Filter</h5>
+            <p className="text-xs font-black bronze-text">Specific dates ka record check karein</p>
+          </div>
+        </div>
+
+        <div className="flex items-center gap-3">
+          <input type="date" value={filterStartDate} onChange={e => setFilterStartDate(e.target.value)}
+            className="bg-white/5 border border-border/30 rounded-xl px-4 py-2.5 text-xs font-bold outline-none focus:border-primary transition-all text-white" />
+          <span className="text-[10px] font-black text-zinc-600 uppercase">To</span>
+          <input type="date" value={filterEndDate} onChange={e => setFilterEndDate(e.target.value)}
+            className="bg-white/5 border border-border/30 rounded-xl px-4 py-2.5 text-xs font-bold outline-none focus:border-primary transition-all text-white" />
+          <button onClick={() => { setFilterStartDate(''); setFilterEndDate(''); }} 
+            className="p-2.5 rounded-xl bg-white/5 hover:bg-white/10 text-zinc-500 hover:text-white transition-all">
+            <RotateCcw size={16} />
+          </button>
+        </div>
+      </div>
+
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
         {/* Main Content (2/3) */}
         <div className="lg:col-span-2">
@@ -413,7 +463,7 @@ const FactoryDetails = ({ factory, onBack, onRefresh, onDelete }) => {
                     Maal <span className="bronze-text">Received</span>
                   </h4>
                   <span className="ml-auto px-3 py-1 rounded-full bg-primary/10 text-primary text-[10px] font-black uppercase tracking-widest">
-                    {(factory.rolls || []).length} Rolls
+                    {(filteredRolls || []).length} Rolls
                   </span>
                 </div>
 
@@ -501,13 +551,13 @@ const FactoryDetails = ({ factory, onBack, onRefresh, onDelete }) => {
                     Payment <span className="bronze-text">History</span>
                   </h4>
                   <span className="ml-auto px-3 py-1 rounded-full bg-emerald-500/10 text-emerald-400 text-[10px] font-black uppercase tracking-widest">
-                    {(factory.payments || []).length} Payments
+                  {filteredPayments.length} Payments
                   </span>
                 </div>
 
                 <div className="space-y-3 max-h-[580px] overflow-y-auto pr-2 scrollbar-thin scrollbar-thumb-primary/20">
-                  {(factory.payments || []).length > 0 ? (
-                    [...(factory.payments || [])].reverse().map((pay, i) => (
+                  {filteredPayments.length > 0 ? (
+                    [...filteredPayments].reverse().map((pay, i) => (
                       <motion.div key={pay.id || i}
                         initial={{ opacity: 0, y: -6 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: i * 0.03 }}
                         className="flex items-center gap-4 p-5 rounded-2xl bg-white/5 border border-border/30 group hover:border-emerald-500/20 transition-all">
