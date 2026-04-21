@@ -75,12 +75,12 @@ export default function StockModule() {
   const [newRoll, setNewRoll] = useState({ id: '', product_type: '', design: '', color: '', length: '', width: '', quantity: 1, factory: '' });
 
   const categories = [
-    { id: 'carpet', title: 'Carpet', icon: Layers, count: rolls.filter(r => r.category === 'carpet').length },
-    ...(shopId !== 'hanif' ? [{ id: 'qaleen', title: 'Qaleen', icon: Grid, count: rolls.filter(r => r.category === 'qaleen').length }] : []),
-    { id: 'sheet', title: 'Sheet', icon: FileText, count: rolls.filter(r => r.category === 'sheet').length },
-    { id: 'prayers', title: 'Prayers', icon: Users, count: rolls.filter(r => r.category === 'prayers').length },
-    { id: 'mate', title: 'Mate', icon: Package, count: rolls.filter(r => r.category === 'mate').length },
-    { id: 'cut-pieces', title: 'Cut Pieces', icon: Plus, count: rolls.filter(r => r.category === 'cut-pieces').length },
+    { id: 'carpet', title: 'Carpet', icon: Layers, count: rolls.filter(r => r.category === 'carpet' && !r.factory && r.status !== 'Sold').length },
+    ...(shopId !== 'hanif' ? [{ id: 'qaleen', title: 'Qaleen', icon: Grid, count: rolls.filter(r => r.category === 'qaleen' && !r.factory && r.status !== 'Sold').length }] : []),
+    { id: 'sheet', title: 'Sheet', icon: FileText, count: rolls.filter(r => r.category === 'sheet' && !r.factory && r.status !== 'Sold').length },
+    { id: 'prayers', title: 'Prayers', icon: Users, count: rolls.filter(r => r.category === 'prayers' && !r.factory && r.status !== 'Sold').length },
+    { id: 'mate', title: 'Mate', icon: Package, count: rolls.filter(r => r.category === 'mate' && !r.factory && r.status !== 'Sold').length },
+    { id: 'cut-pieces', title: 'Cut Pieces', icon: Plus, count: rolls.filter(r => r.category === 'cut-pieces' && !r.factory && r.status !== 'Sold').length },
   ];
   
   const fetchAllData = async () => {
@@ -340,6 +340,8 @@ export default function StockModule() {
 
   const filteredRolls = rolls.filter(roll => {
     if (roll.category !== selectedCategory?.id) return false;
+    if (roll.factory) return false; // Exclude factory items from stock list
+    if (roll.status === 'Sold') return false; // Exclude depleted/sold items from active view
     const query = searchQuery.toLowerCase();
     return (
       (roll.roll_id || '').toLowerCase().includes(query) ||
@@ -821,7 +823,8 @@ export default function StockModule() {
                       </div>
                     </td>
                     <td className="px-8 py-4">
-                      <p className="font-bold text-sm tracking-tight">{roll.design || 'Item Detail'}</p>
+                      <p className="font-bold text-sm tracking-tight">{roll.product_type} {roll.design ? `• ${roll.design}` : ''}</p>
+                      <p className="text-[9px] font-black uppercase text-zinc-500 tracking-widest mt-0.5">{roll.color || 'No Color'}</p>
                     </td>
                     {['mate', 'qaleen'].includes(selectedCategory?.id) && (
                       <td className="px-8 py-4">

@@ -137,7 +137,7 @@ export default function OverviewModule({ onNavigate }) {
           return result;
         };
 
-        const inStockRolls = (Array.isArray(rolls) ? rolls : []).filter(r => r.status === 'In Stock').length;
+        const inStockRolls = (Array.isArray(rolls) ? rolls : []).filter(r => r.status === 'In Stock' && !r.factory).length;
         const totalOutstanding = activeSales.reduce((sum, s) => sum + (s.status === 'Paid' ? 0 : (s.balance_amount || 0)), 0);
         const totalSaleValue = activeSales.reduce((sum, s) => sum + (s.total_amount || 0), 0);
 

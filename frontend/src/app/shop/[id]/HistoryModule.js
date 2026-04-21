@@ -14,7 +14,8 @@ import {
   Search,
   Package,
   Layers,
-  RotateCcw
+  RotateCcw,
+  BarChart3
 } from 'lucide-react';
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
@@ -32,6 +33,8 @@ export default function HistoryModule() {
   const [startDate, setStartDate] = useState(startOfMonth);
   const [endDate, setEndDate] = useState(today);
   const [expandedSaleId, setExpandedSaleId] = useState(null);
+  const [currentView, setCurrentView] = useState('History');
+  const [rolls, setRolls] = useState([]);
 
   const fetchSalesHistory = async () => {
     try {
@@ -55,9 +58,17 @@ export default function HistoryModule() {
     }
   };
 
+  const fetchRolls = async () => {
+    try {
+      const resp = await fetch(`${API_BASE}/rolls/?shop=${shopId}`);
+      if (resp.ok) setRolls(await resp.json());
+    } catch (err) {}
+  };
+
   useEffect(() => {
     fetchSalesHistory();
     fetchExpensesHistory();
+    fetchRolls();
   }, [shopId]);
 
   const [paymentInputs, setPaymentInputs] = useState({});
@@ -268,6 +279,49 @@ export default function HistoryModule() {
   });
 
   const activeSales = filteredHistory.filter(s => s.status !== 'Returned');
+
+  const calculateSoldAnalytics = () => {
+    const soldMap = {};
+    activeSales.forEach(sale => {
+      sale.items?.forEach(item => {
+        const key = item.roll_id_str || item.roll || 'Unknown';
+        if (!soldMap[key]) {
+          soldMap[key] = {
+            roll_id: key,
+            type: item.roll_product_type || '',
+            design: item.roll_design || '',
+            color: item.roll_color || '',
+            total_sold_length: 0,
+            total_sold_qty: 0,
+            is_area: (item.width || 0) > 1
+          };
+        }
+        if (soldMap[key].is_area) {
+           soldMap[key].total_sold_length += parseFloat(item.length || 0);
+        } else {
+           soldMap[key].total_sold_qty += parseInt(item.length || 1);
+        }
+      });
+    });
+
+    return Object.values(soldMap).map(soldItem => {
+       const remainingStock = rolls.find(r => r.roll_id === soldItem.roll_id);
+       let remainingText = '-';
+       if (remainingStock) {
+           if (soldItem.is_area && remainingStock.category === 'cut-pieces') {
+              remainingText = `${remainingStock.length} ft left in Cut Pieces`;
+           } else if (remainingStock.status !== 'Sold') {
+              if (soldItem.is_area) remainingText = `${remainingStock.length} ft Active Stock`;
+              else remainingText = `${remainingStock.quantity} pcs Active Stock`;
+           } else {
+              remainingText = 'Fully Sold';
+           }
+       } else {
+           remainingText = 'Not in Stock DB';
+       }
+       return { ...soldItem, remainingText };
+    }).sort((a,b) => b.total_sold_length - a.total_sold_length || b.total_sold_qty - a.total_sold_qty);
+  };
   const totalSalesAmount = activeSales.reduce((sum, sale) => sum + sale.total_amount, 0);
   const totalPaidAmount = activeSales.reduce((sum, sale) => sum + (sale.status === 'Paid' ? sale.total_amount : sale.paid_amount), 0);
   const totalBalanceDue = activeSales.reduce((sum, sale) => sum + (sale.status === 'Paid' ? 0 : sale.balance_amount), 0);
@@ -426,6 +480,20 @@ export default function HistoryModule() {
           </h2>
           <p className="text-zinc-500 font-bold uppercase text-[10px] tracking-[0.4em] mt-2">Transaction Archive & Invoicing</p>
         </div>
+        <div className="flex items-center gap-2 bg-white/5 p-1 rounded-2xl border border-white/5">
+          <button 
+            onClick={() => setCurrentView('History')}
+            className={`px-6 py-3 rounded-xl font-black text-[10px] uppercase tracking-widest transition-all ${currentView === 'History' ? 'bg-primary text-black shadow-lg shadow-primary/20' : 'text-zinc-500 hover:text-white'}`}
+          >
+            Sales Archive
+          </button>
+          <button 
+            onClick={() => setCurrentView('SoldAnalytics')}
+            className={`px-6 py-3 rounded-xl font-black text-[10px] uppercase tracking-widest transition-all ${currentView === 'SoldAnalytics' ? 'bg-primary text-black shadow-lg shadow-primary/20' : 'text-zinc-500 hover:text-white'}`}
+          >
+            Sold Analytics
+          </button>
+        </div>
       </header>
 
       <motion.div 
@@ -536,7 +604,49 @@ export default function HistoryModule() {
            </div>
          </div>
 
-         <div className="overflow-y-auto max-h-[700px] pr-2 space-y-4 scrollbar-thin scrollbar-thumb-white/10 scrollbar-track-transparent">
+         {currentView === 'SoldAnalytics' ? (
+            <div className="overflow-y-auto max-h-[700px] pr-2 space-y-4 scrollbar-thin scrollbar-thumb-white/10 scrollbar-track-transparent animate-in slide-in-from-right-8 duration-500">
+               <div className="bg-primary/5 border border-primary/20 p-6 rounded-2xl mb-6 flex items-center gap-4">
+                   <BarChart3 size={24} className="bronze-text" />
+                   <div>
+                      <h4 className="font-black uppercase tracking-widest text-primary text-xs">Sold Stock Analysis</h4>
+                      <p className="text-[10px] text-zinc-400 font-bold uppercase tracking-widest mt-1">Tracking depleted rolls & cut pieces across selected duration.</p>
+                   </div>
+               </div>
+               
+               <div className="grid gap-3">
+                 {calculateSoldAnalytics().map((item, idx) => (
+                   <div key={idx} className="p-6 rounded-[2rem] bg-white/[0.02] border border-white/5 flex flex-col md:flex-row items-start md:items-center justify-between gap-6 hover:border-white/10 transition-all">
+                      <div className="flex items-center gap-5">
+                         <div className="w-12 h-12 rounded-2xl bg-black/30 border border-white/5 flex items-center justify-center bronze-text font-black text-[10px]">
+                            #{idx + 1}
+                         </div>
+                         <div>
+                            <h5 className="font-black uppercase tracking-tight text-base">{item.roll_id}</h5>
+                            <p className="text-[10px] text-zinc-500 font-bold uppercase tracking-widest mt-1 mb-1">{item.type} {item.design ? `• ${item.design}` : ''} {item.color ? `• ${item.color}` : ''}</p>
+                         </div>
+                      </div>
+                      <div className="flex flex-wrap items-center gap-4 md:gap-10">
+                         <div className="text-left md:text-right">
+                            <p className="text-[9px] font-black uppercase tracking-widest text-emerald-600 mb-1">Total Sold</p>
+                            <p className="font-black italic text-lg tracking-tighter text-emerald-500">{item.is_area ? `${item.total_sold_length} ft` : `${item.total_sold_qty} Pcs`}</p>
+                         </div>
+                         <div className="text-left md:text-right border-l border-white/5 pl-4 md:pl-10">
+                            <p className="text-[9px] font-black uppercase tracking-widest text-zinc-600 mb-1">Remaining Stock Status</p>
+                            <span className={`px-3 py-1.5 rounded-xl text-[9px] font-black uppercase tracking-widest ${item.remainingText.includes('Cut Pieces') ? 'bg-amber-500/10 text-amber-500' : item.remainingText.includes('Active') ? 'bg-emerald-500/10 text-emerald-500' : 'bg-red-500/10 text-red-500'}`}>
+                               {item.remainingText}
+                            </span>
+                         </div>
+                      </div>
+                   </div>
+                 ))}
+                 {calculateSoldAnalytics().length === 0 && (
+                   <div className="py-20 text-center text-zinc-600 italic font-black uppercase tracking-[0.3em]">No sold records found for this duration</div>
+                 )}
+               </div>
+            </div>
+         ) : (
+          <div className="overflow-y-auto max-h-[700px] pr-2 space-y-4 scrollbar-thin scrollbar-thumb-white/10 scrollbar-track-transparent">
            {filteredHistory.slice().reverse().map((sale) => (
              <div key={sale.id} className="p-8 rounded-[2rem] bg-white/[0.02] border border-white/5 hover:border-primary/20 transition-all group mb-4">
                <div 
@@ -555,6 +665,11 @@ export default function HistoryModule() {
                        <span className="text-zinc-800 mx-2">|</span>
                        <Calendar size={10} className="bronze-text" /> {sale.date}
                      </p>
+                     {sale.status === 'Returned' && sale.items?.length > 0 && (
+                        <div className="mt-2 inline-flex flex-wrap items-center gap-2 bg-zinc-500/10 px-3 py-1.5 rounded-lg border border-zinc-500/20 text-[9px] font-bold text-zinc-400 uppercase tracking-widest shadow-inner">
+                           {sale.items?.slice(0,3).map(it => `${it.roll_product_type || ''} ${it.roll_design || ''}`.trim() || it.roll_id_str).join(' • ') + (sale.items?.length > 3 ? '...' : '')}
+                        </div>
+                     )}
                    </div>
                  </div>
 
@@ -646,7 +761,14 @@ export default function HistoryModule() {
                               <div key={idx} className="flex flex-col sm:flex-row sm:items-center justify-between p-4 rounded-xl bg-white/5 border border-white/5 text-[10px] font-black uppercase tracking-widest gap-4">
                                  <div className="flex items-center gap-4">
                                      <span className="text-zinc-500 w-4">#{idx + 1}</span>
-                                     <span className="text-white text-xs">Roll: {item.roll_id_str || item.roll || ''}</span>
+                                     <div>
+                                         <span className="text-white text-xs block">Roll: {item.roll_id_str || item.roll || ''}</span>
+                                         <p className="text-[9px] text-zinc-500 font-bold uppercase tracking-widest mt-0.5">
+                                             {item.roll_product_type || 'Unknown Type'} 
+                                             {item.roll_design && ` • ${item.roll_design}`} 
+                                             {item.roll_color && ` • ${item.roll_color}`}
+                                         </p>
+                                     </div>
                                  </div>
                                  <div className="flex flex-wrap items-center gap-6 text-zinc-400 justify-end flex-grow">
                                      <span className="bg-black/30 px-3 py-1 rounded-lg">Dims: {(item.width || 0) > 1 ? `${item.length} ft x ${item.width} ft` : `${item.length} Pcs`}</span>
@@ -727,6 +849,7 @@ export default function HistoryModule() {
              <div className="py-40 text-center text-zinc-700 italic font-black uppercase tracking-[0.5em]">No transactions found</div>
            )}
          </div>
+         )}
       </motion.div>
     </div>
   );

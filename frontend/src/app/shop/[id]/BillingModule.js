@@ -85,7 +85,7 @@ export default function BillingModule() {
       const resp = await fetch(`${API_BASE}/rolls/?shop=${shopId}`);
       if (resp.ok) {
         const data = await resp.json();
-        setStock(data.filter(r => r.status === 'In Stock'));
+        setStock(data.filter(r => r.status === 'In Stock' && !r.factory));
       }
     } catch (err) {
       console.error("Failed to fetch stock", err);

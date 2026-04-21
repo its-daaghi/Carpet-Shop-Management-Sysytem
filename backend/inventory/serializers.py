@@ -121,10 +121,14 @@ class SaleSerializer(serializers.ModelSerializer):
             roll = item_data.get('roll')
             length = item_data.get('length', 0.0)
             if roll:
-                if roll.length > 0:
-                    roll.length = max(0.0, float(roll.length) - float(length))
-                    if roll.length == 0.0:
-                        roll.status = 'Sold'
+                if roll.length > 0 or roll.category in ['carpet', 'sheet', 'prayers', 'cut-pieces']:
+                    # Handle Area-based (might be cut-pieces already)
+                    if float(roll.length) > 0:
+                        roll.length = round(max(0.0, float(roll.length) - float(length)), 4)
+                        if roll.length == 0.0:
+                            roll.status = 'Sold'
+                        elif roll.length < 11.0:
+                            roll.category = 'cut-pieces'
                 else:
                     roll.quantity = max(0, int(roll.quantity) - int(length))
                     if roll.quantity == 0:

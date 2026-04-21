@@ -128,17 +128,44 @@ class SaleViewSet(viewsets.ModelViewSet):
             for item in sale.items.all():
                 roll = item.roll
                 if roll:
-                    if roll.length > 0 or item.length > 0:
-                        # Area/length-based roll — add length back
-                        roll.length = round(float(roll.length) + float(item.length), 4)
+                    is_area_based = roll.category in ['carpet', 'sheet', 'prayers', 'cut-pieces']
+
+                    if is_area_based:
+                        returned_length = round(float(item.length), 4)
+                        if returned_length > 0:
+                            new_category = roll.category
+                            if returned_length < 11.0:
+                                new_category = 'cut-pieces'
+                            elif new_category == 'cut-pieces':
+                                try:
+                                    from .models import ProductType
+                                    pt = ProductType.objects.filter(name=roll.product_type).first()
+                                    new_category = pt.category if pt else 'carpet'
+                                except:
+                                    new_category = 'carpet'
+
+                            new_roll_id = f"{roll.roll_id}-RET-{sale.id}"
+                            
+                            Roll.objects.create(
+                                roll_id=new_roll_id,
+                                category=new_category,
+                                product_type=roll.product_type,
+                                design=roll.design,
+                                color=roll.color,
+                                length=returned_length,
+                                width=roll.width,
+                                quantity=1,
+                                status='In Stock',
+                                factory=roll.factory,
+                                unit_price=roll.unit_price,
+                                received_date=roll.received_date
+                            )
                     else:
                         # Piece/quantity-based roll — add quantity back
                         roll.quantity = int(roll.quantity) + int(item.length or 1)
-
-                    # If it was sold, put it back in stock
-                    if roll.status == 'Sold':
-                        roll.status = 'In Stock'
-                    roll.save()
+                        if roll.status == 'Sold':
+                            roll.status = 'In Stock'
+                        roll.save()
 
             sale.status = 'Returned'
             sale.save()
