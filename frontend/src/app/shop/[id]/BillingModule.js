@@ -39,6 +39,7 @@ export default function BillingModule() {
     mobile: '',
     sale_type: 'Cash',
     paid_amount: 0,
+    discount: 0,
     remarks: ''
   });
 
@@ -66,6 +67,7 @@ export default function BillingModule() {
       mobile: '',
       sale_type: 'Cash',
       paid_amount: 0,
+      discount: 0,
       remarks: ''
     });
     setLastCreatedSale(null);
@@ -135,7 +137,8 @@ export default function BillingModule() {
   };
 
   const totalAmount = cart.reduce((sum, item) => sum + itemSubtotal(item), 0);
-  const balanceAmount = totalAmount - customer.paid_amount;
+  const discountAmount = parseFloat(customer.discount) || 0;
+  const balanceAmount = Math.max(0, totalAmount - discountAmount - (parseFloat(customer.paid_amount) || 0));
 
   // Total additional stock payment for this sale
   const totalAdditionalStockPayment = additionalStocks.reduce((sum, s) => sum + parseFloat(s.total_payment || 0), 0);
@@ -149,7 +152,8 @@ export default function BillingModule() {
       customer_name: customer.name,
       customer_mobile: customer.mobile,
       total_amount: totalAmount,
-      paid_amount: customer.sale_type === 'Cash' ? totalAmount : parseFloat(customer.paid_amount) || 0,
+      discount: discountAmount,
+      paid_amount: customer.sale_type === 'Cash' ? Math.max(0, totalAmount - discountAmount) : (parseFloat(customer.paid_amount) || 0),
       balance_amount: customer.sale_type === 'Cash' ? 0 : balanceAmount,
       sale_type: customer.sale_type,
       status: customer.sale_type === 'Cash' ? 'Paid' : (customer.paid_amount > 0 ? 'Partial' : 'Unpaid'),
@@ -228,7 +232,8 @@ export default function BillingModule() {
     const shopName = shopId === 'usman' ? 'Usman Carpet & Qaleen Center' : 'Hanif Carpet Premium Outlet';
     const stockList = extraStocks || additionalStocks;
     const additionalTotal = stockList.reduce((sum, s) => sum + parseFloat(s.total_payment || 0), 0);
-    const grandTotal = (sale.total_amount || 0) + additionalTotal;
+    const saleDiscount = sale.discount || 0;
+    const grandTotal = (sale.total_amount || 0) + additionalTotal - saleDiscount;
 
     // Header
     doc.setFillColor(184, 134, 11);
@@ -303,25 +308,37 @@ export default function BillingModule() {
 
     const finalY = doc.lastAutoTable.finalY + 10;
 
+    let currentY = finalY;
+
+    if (saleDiscount > 0) {
+      doc.setFont('helvetica', 'normal');
+      doc.setFontSize(10);
+      doc.setTextColor(180, 0, 0);
+      doc.text('Discount:', 130, currentY);
+      doc.text(`- PKR ${Number(saleDiscount).toLocaleString()}`, 196, currentY, { align: 'right' });
+      currentY += 8;
+      doc.setTextColor(0);
+    }
+
     const isFullyPaid = sale.sale_type === 'Cash' || sale.status === 'Paid';
     const effectivePaid = isFullyPaid ? grandTotal : (sale.paid_amount + additionalTotal);
     const balanceDue = Math.max(0, grandTotal - effectivePaid);
 
     doc.setFont('helvetica', 'normal');
     doc.setFontSize(10);
-    doc.text('Paid Amount:', 130, finalY);
-    doc.text(`PKR ${Number(effectivePaid).toLocaleString()}`, 196, finalY, { align: 'right' });
+    doc.text('Paid Amount:', 130, currentY);
+    doc.text(`PKR ${Number(effectivePaid).toLocaleString()}`, 196, currentY, { align: 'right' });
 
     doc.setFontSize(12);
     doc.setFont('helvetica', 'bold');
-    doc.text('Grand Total:', 130, finalY + 10);
-    doc.text(`PKR ${Number(grandTotal).toLocaleString()}`, 196, finalY + 10, { align: 'right' });
-    doc.text('Balance Due:', 130, finalY + 20);
-    doc.text(`PKR ${Number(balanceDue).toLocaleString()}`, 196, finalY + 20, { align: 'right' });
+    doc.text('Grand Total:', 130, currentY + 10);
+    doc.text(`PKR ${Number(grandTotal).toLocaleString()}`, 196, currentY + 10, { align: 'right' });
+    doc.text('Balance Due:', 130, currentY + 20);
+    doc.text(`PKR ${Number(balanceDue).toLocaleString()}`, 196, currentY + 20, { align: 'right' });
 
     // Payment History (if any)
-    if (sale.payment_history && sale.payment_history.length > 0) {
-      const paymentY = finalY + 35;
+    if (sale.sale_type !== 'Cash' && sale.payment_history && sale.payment_history.length > 0) {
+      const paymentY = currentY + 35;
       doc.setFontSize(11);
       doc.setFont('helvetica', 'bold');
       doc.setTextColor(0);
@@ -502,15 +519,34 @@ export default function BillingModule() {
                           </div>
                         </div>
                       )}
+                      
+                      {/* Discount Field (Always Visible) */}
+                      <div className="space-y-2 animate-in fade-in slide-in-from-top-4">
+                        <label className="text-[9px] font-black text-zinc-500 uppercase tracking-widest ml-1">Discount (PKR)</label>
+                        <div className="relative">
+                          <CreditCard className="absolute left-4 top-1/2 -translate-y-1/2 text-amber-500" size={18} />
+                          <input 
+                            type="number" placeholder="0.00"
+                            className="w-full bg-black/20 border border-white/5 rounded-xl pl-12 pr-4 py-4 outline-none focus:border-amber-500 transition-all font-black text-sm"
+                            value={customer.discount} onChange={(e) => setCustomer({...customer, discount: e.target.value})}
+                          />
+                        </div>
+                      </div>
 
                       <div className="p-8 rounded-[2rem] bg-black/30 space-y-4">
                         <div className="flex justify-between items-center text-[10px] font-black uppercase tracking-[0.2em]">
                           <span className="text-zinc-500">Gross Sale</span>
                           <span>PKR {totalAmount.toLocaleString()}</span>
                         </div>
+                        {discountAmount > 0 && (
+                           <div className="flex justify-between items-center text-[10px] font-black uppercase tracking-[0.2em] border-t border-white/5 pt-4">
+                             <span className="text-amber-500">Discount</span>
+                             <span className="text-amber-500">- PKR {discountAmount.toLocaleString()}</span>
+                           </div>
+                        )}
                         <div className="flex justify-between items-center text-[10px] font-black uppercase tracking-[0.2em] border-t border-white/5 pt-4">
                           <span className="text-zinc-500">Total Paid</span>
-                          <span className="text-emerald-500">PKR {customer.sale_type === 'Cash' ? totalAmount.toLocaleString() : (parseFloat(customer.paid_amount) || 0).toLocaleString()}</span>
+                          <span className="text-emerald-500">PKR {customer.sale_type === 'Cash' ? Math.max(0, totalAmount - discountAmount).toLocaleString() : (parseFloat(customer.paid_amount) || 0).toLocaleString()}</span>
                         </div>
                         <div className="flex justify-between items-center text-[10px] font-black uppercase tracking-[0.2em] border-t border-white/5 pt-4">
                           <span className="text-zinc-500">Net Balance</span>
@@ -665,9 +701,15 @@ export default function BillingModule() {
                       <span className="text-zinc-500">Subtotal</span>
                       <span>PKR {totalAmount.toLocaleString()}</span>
                     </div>
-                    <div className="flex justify-between items-center text-xl font-black uppercase tracking-tighter italic bronze-text pt-2">
+                    {discountAmount > 0 && (
+                      <div className="flex justify-between items-center text-[10px] font-black uppercase tracking-[0.2em] italic pt-2">
+                        <span className="text-amber-500">Discount</span>
+                        <span className="text-amber-500">- PKR {discountAmount.toLocaleString()}</span>
+                      </div>
+                    )}
+                    <div className="flex justify-between items-center text-xl font-black uppercase tracking-tighter italic bronze-text pt-2 border-t border-white/5 mt-2">
                       <span>Grand Total</span>
-                      <span>PKR {totalAmount.toLocaleString()}</span>
+                      <span>PKR {Math.max(0, totalAmount - discountAmount).toLocaleString()}</span>
                     </div>
                     
                     <button 

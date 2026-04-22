@@ -15,7 +15,8 @@ import {
   RotateCcw,
   AlertCircle,
   CheckCircle2,
-  FileText
+  FileText,
+  Tag
 } from 'lucide-react';
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
@@ -75,12 +76,25 @@ export default function OverviewModule({ onNavigate }) {
     const fetchData = async () => {
       try {
         const shopParam = `?shop=${shopId}`;
+        
+        // Use a more robust fetch helper
+        const safeFetch = async (url) => {
+          try {
+            const r = await fetch(url);
+            if (!r.ok) return [];
+            return await r.json();
+          } catch (e) {
+            console.error(`Fetch failed for ${url}`, e);
+            return [];
+          }
+        };
+
         const [rolls, expenses, sales, employees, factories] = await Promise.all([
-          fetch(`${API_BASE}/rolls/${shopParam}`).then(r => r.json()),
-          fetch(`${API_BASE}/expenses/${shopParam}`).then(r => r.json()),
-          fetch(`${API_BASE}/sales/${shopParam}`).then(r => r.json()),
-          fetch(`${API_BASE}/employees/${shopParam}`).then(r => r.json()),
-          fetch(`${API_BASE}/factories/`).then(r => r.json())
+          safeFetch(`${API_BASE}/rolls/${shopParam}`),
+          safeFetch(`${API_BASE}/expenses/${shopParam}`),
+          safeFetch(`${API_BASE}/sales/${shopParam}`),
+          safeFetch(`${API_BASE}/employees/${shopParam}`),
+          safeFetch(`${API_BASE}/factories/`)
         ]);
 
         const now = new Date();
@@ -93,33 +107,40 @@ export default function OverviewModule({ onNavigate }) {
         const salesDailyMap = {};
         let salesToday = 0, salesWeekly = 0, salesMonthly = 0;
         let additionalStockToday = 0;
+        const todaySalesList = [];
 
         activeSales.forEach(sale => {
-          // Use total_amount only — same as History "Gross Sales" card
           const grossAmount = parseFloat(sale.total_amount || 0);
+          const discountAmount = parseFloat(sale.discount || 0);
+          const netAmount = grossAmount - discountAmount;
           const addStockAmount = (sale.additional_stocks || []).reduce((s, st) => s + parseFloat(st.total_payment || 0), 0);
           const d = new Date(sale.date);
           const diffDays = (now - d) / (1000 * 60 * 60 * 24);
 
           if (sale.date === todayStr) {
-            salesToday += grossAmount;
+            salesToday += netAmount;
             additionalStockToday += addStockAmount;
+            todaySalesList.push(sale);
           }
-          if (diffDays <= 7) salesWeekly += grossAmount;
-          if (d.getMonth() === now.getMonth() && d.getFullYear() === now.getFullYear()) salesMonthly += grossAmount;
-          if (diffDays <= 7) salesDailyMap[sale.date] = (salesDailyMap[sale.date] || 0) + grossAmount;
+          if (diffDays <= 7) salesWeekly += netAmount;
+          if (d.getMonth() === now.getMonth() && d.getFullYear() === now.getFullYear()) salesMonthly += netAmount;
+          if (diffDays <= 7) salesDailyMap[sale.date] = (salesDailyMap[sale.date] || 0) + netAmount;
         });
 
         // Expenses
         const expDailyMap = {};
         let expToday = 0, expWeekly = 0, expMonthly = 0;
+        const todayExpensesList = [];
 
         (Array.isArray(expenses) ? expenses : []).forEach(exp => {
           const amount = parseFloat(String(exp.amount).replace(/[^0-9.]/g, '')) || 0;
           const d = new Date(exp.date);
           const diffDays = (now - d) / (1000 * 60 * 60 * 24);
 
-          if (exp.date === todayStr) expToday += amount;
+          if (exp.date === todayStr) {
+            expToday += amount;
+            todayExpensesList.push(exp);
+          }
           if (diffDays <= 7) expWeekly += amount;
           if (d.getMonth() === now.getMonth() && d.getFullYear() === now.getFullYear()) expMonthly += amount;
           if (diffDays <= 7) expDailyMap[exp.date] = (expDailyMap[exp.date] || 0) + amount;
@@ -139,7 +160,8 @@ export default function OverviewModule({ onNavigate }) {
 
         const inStockRolls = (Array.isArray(rolls) ? rolls : []).filter(r => r.status === 'In Stock' && !r.factory).length;
         const totalOutstanding = activeSales.reduce((sum, s) => sum + (s.status === 'Paid' ? 0 : (s.balance_amount || 0)), 0);
-        const totalSaleValue = activeSales.reduce((sum, s) => sum + (s.total_amount || 0), 0);
+        const totalSaleValue = activeSales.reduce((sum, s) => sum + (parseFloat(s.total_amount || 0) - parseFloat(s.discount || 0)), 0);
+        const totalDiscount = activeSales.reduce((sum, s) => sum + parseFloat(s.discount || 0), 0);
 
         setStats({
           sales: {
@@ -149,6 +171,7 @@ export default function OverviewModule({ onNavigate }) {
             monthly: salesMonthly,
             dailyHistory: buildHistory(salesDailyMap),
             totalValue: totalSaleValue,
+            totalDiscount: totalDiscount,
             outstanding: totalOutstanding,
           },
           expenses: {
@@ -162,12 +185,23 @@ export default function OverviewModule({ onNavigate }) {
             employees: (Array.isArray(employees) ? employees : []).length,
             factories: (Array.isArray(factories) ? factories : []).length,
             returned: returnedSales.length,
+          },
+          todayDetails: {
+            sales: todaySalesList,
+            expenses: todayExpensesList
           }
         });
         setLoading(false);
       } catch (err) {
         console.error('Dashboard failed', err);
         setLoading(false);
+        // Set empty stats instead of null to allow rendering
+        setStats({
+          sales: { today: 0, todayAdditional: 0, weekly: 0, monthly: 0, dailyHistory: [], totalValue: 0, totalDiscount: 0, outstanding: 0 },
+          expenses: { today: 0, weekly: 0, monthly: 0, dailyHistory: [] },
+          counts: { rolls: 0, employees: 0, factories: 0, returned: 0 },
+          todayDetails: { sales: [], expenses: [] }
+        });
       }
     };
 
@@ -175,7 +209,7 @@ export default function OverviewModule({ onNavigate }) {
   }, [shopId]);
 
   const generateTodayPDF = () => {
-    if (!stats) return;
+    if (!stats || !stats.todayDetails) return;
     
     const doc = new jsPDF();
     const shopName = shopId === 'usman' ? 'Usman Carpet & Qaleen Center' : 'Hanif Carpet Premium Outlet';
@@ -183,25 +217,136 @@ export default function OverviewModule({ onNavigate }) {
     
     const { today: salesToday, todayAdditional } = stats.sales;
     const { today: expToday } = stats.expenses;
+    const { sales: todaySalesList, expenses: todayExpensesList } = stats.todayDetails;
     
     const grossSalesWithAdditional = salesToday + todayAdditional;
     const netCash = grossSalesWithAdditional - todayAdditional - expToday;
 
     doc.setFillColor(184, 134, 11);
-    doc.rect(0, 0, 210, 40, 'F');
-    doc.setFontSize(24);
+    doc.rect(0, 0, 210, 30, 'F');
+    doc.setFontSize(20);
     doc.setTextColor(255);
     doc.setFont('helvetica', 'bold');
-    doc.text(shopName.toUpperCase(), 14, 25);
+    doc.text(shopName.toUpperCase(), 14, 20);
     doc.setFontSize(10);
-    doc.text("TODAY'S BUSINESS SUMMARY", 14, 32);
-
+    doc.text(`TODAY'S BUSINESS SUMMARY - ${todayStr}`, 14, 26);
     doc.setTextColor(0);
+
+    let currentY = 40;
+
+    // --- SALES TABLE ---
+    if (todaySalesList.length > 0) {
+      doc.setFontSize(12);
+      doc.setFont('helvetica', 'bold');
+      doc.text("Today's Sales", 14, currentY);
+      currentY += 5;
+
+      const salesBody = [];
+      todaySalesList.forEach(sale => {
+        const netAmount = parseFloat(sale.total_amount || 0) - parseFloat(sale.discount || 0);
+        let itemsDesc = '';
+        if (sale.items && sale.items.length > 0) {
+           itemsDesc = sale.items.map(item => {
+              const dim = (item.length > 0 || item.width > 0) ? `${item.length || 0}x${item.width || 0}` : '';
+              return `${item.roll_product_type || ''} ${item.roll_design || ''} ${item.roll_color || ''} ${dim}`.trim();
+           }).filter(Boolean).join('\n');
+        } else {
+           itemsDesc = 'No items';
+        }
+        
+        let remarks = sale.remarks && sale.remarks !== 'No remarks' ? `\nNote: ${sale.remarks}` : '';
+
+        salesBody.push([
+          sale.bill_number || sale.id,
+          sale.customer_name || 'Walk-in',
+          `${itemsDesc}${remarks}`.trim(),
+          sale.sale_type,
+          `PKR ${netAmount.toLocaleString()}`
+        ]);
+        
+        // Also add additional stocks if any
+        if (sale.additional_stocks && sale.additional_stocks.length > 0) {
+            sale.additional_stocks.forEach(st => {
+                const dim = (st.length > 0 || st.width > 0) ? `${st.length || 0}x${st.width || 0}` : '';
+                const stDesc = `${st.stock_type || ''} ${st.design || ''} ${st.color || ''} ${dim}`.trim();
+                salesBody.push([
+                    `Add-on (${sale.bill_number || sale.id})`,
+                    sale.customer_name || 'Walk-in',
+                    stDesc,
+                    'Additional',
+                    `PKR ${parseFloat(st.total_payment || 0).toLocaleString()}`
+                ]);
+            });
+        }
+      });
+
+      autoTable(doc, {
+        startY: currentY,
+        head: [['Bill #', 'Customer Name', 'Items (Type, Design, Color, Size)', 'Type', 'Net Amount']],
+        body: salesBody,
+        theme: 'grid',
+        headStyles: { fillColor: [40, 40, 40] },
+        styles: { fontSize: 8, cellPadding: 3, valign: 'middle' },
+        columnStyles: { 2: { cellWidth: 70 }, 4: { halign: 'right' } }
+      });
+      currentY = doc.lastAutoTable.finalY + 10;
+    } else {
+      doc.setFontSize(10);
+      doc.setFont('helvetica', 'italic');
+      doc.text("No sales recorded today.", 14, currentY);
+      currentY += 10;
+    }
+
+    // --- EXPENSES TABLE ---
+    if (todayExpensesList.length > 0) {
+      if (currentY > 250) {
+        doc.addPage();
+        currentY = 20;
+      }
+
+      doc.setFontSize(12);
+      doc.setFont('helvetica', 'bold');
+      doc.text("Today's Expenses", 14, currentY);
+      currentY += 5;
+
+      const expBody = todayExpensesList.map(exp => {
+        const amount = parseFloat(String(exp.amount).replace(/[^0-9.]/g, '')) || 0;
+        return [
+          exp.description || 'No description',
+          `PKR ${amount.toLocaleString()}`
+        ];
+      });
+
+      autoTable(doc, {
+        startY: currentY,
+        head: [['Expense Description', 'Amount']],
+        body: expBody,
+        theme: 'grid',
+        headStyles: { fillColor: [180, 50, 50] },
+        styles: { fontSize: 8, cellPadding: 3, valign: 'middle' },
+        columnStyles: { 0: { cellWidth: 140 }, 1: { halign: 'right' } }
+      });
+      currentY = doc.lastAutoTable.finalY + 10;
+    } else {
+      doc.setFontSize(10);
+      doc.setFont('helvetica', 'italic');
+      doc.text("No expenses recorded today.", 14, currentY);
+      currentY += 10;
+    }
+
+    // --- SUMMARY TABLE ---
+    if (currentY > 220) {
+      doc.addPage();
+      currentY = 20;
+    }
+
     doc.setFontSize(12);
-    doc.text(`Date: ${todayStr}`, 14, 55);
+    doc.setFont('helvetica', 'bold');
+    doc.text("Financial Summary", 14, currentY);
+    currentY += 5;
 
     autoTable(doc, {
-      startY: 65,
+      startY: currentY,
       head: [['Description', 'Amount']],
       body: [
         ['Total Sales (Gross + Additional)', `PKR ${grossSalesWithAdditional.toLocaleString()}`],
@@ -219,7 +364,7 @@ export default function OverviewModule({ onNavigate }) {
     doc.setFontSize(12);
     doc.setFont('helvetica', 'bold');
     doc.setTextColor(0, 120, 60);
-    doc.text('Net Sales (To Shop Owner):', 14, finalY);
+    doc.text('Net Cash (To Shop Owner):', 14, finalY);
     doc.text(`PKR ${netCash.toLocaleString()}`, 196, finalY, { align: 'right' });
 
     doc.save(`Today_Summary_${shopId}_${todayStr}.pdf`);
@@ -338,13 +483,20 @@ export default function OverviewModule({ onNavigate }) {
       </div>
 
       {/* Summary Cards */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-5">
+      <div className="grid grid-cols-1 md:grid-cols-4 gap-5">
         <MetricCard 
           title="In Stock"
           value={`${stats.counts.rolls}`}
           subtext="Available Rolls"
           icon={Package}
           colorClass="bronze-text"
+        />
+        <MetricCard 
+          title="Discounts"
+          value={`PKR ${stats.sales.totalDiscount.toLocaleString()}`}
+          subtext="Total Given"
+          icon={Tag}
+          colorClass="text-amber-500"
         />
         <MetricCard 
           title="Employees"

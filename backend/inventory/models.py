@@ -121,6 +121,7 @@ class Sale(models.Model):
     customer_mobile = models.CharField(max_length=20, null=True, blank=True)
     bill_number = models.CharField(max_length=50, null=True, blank=True, unique=True)
     total_amount = models.FloatField(default=0)
+    discount = models.FloatField(default=0)
     paid_amount = models.FloatField(default=0)
     balance_amount = models.FloatField(default=0)
     sale_type = models.CharField(max_length=20, choices=SALE_TYPES, default='Cash')
