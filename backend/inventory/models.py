@@ -137,7 +137,7 @@ class Sale(models.Model):
         is_new = self.pk is None
         super().save(*args, **kwargs)
         if is_new and not self.bill_number:
-            self.bill_number = f"BILL-{1000 + self.id}"
+            self.bill_number = f"{1000 + self.id}"
             super().save(update_fields=['bill_number'])
 
 class SaleItem(models.Model):

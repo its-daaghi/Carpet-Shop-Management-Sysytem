@@ -386,15 +386,17 @@ export default function StockModule() {
         return acc;
       }, {});
 
+      let serialNo = 1;
       Object.entries(grouped).forEach(([type, designs]) => {
         Object.entries(designs).forEach(([design, items]) => {
           items.forEach((roll, index) => {
             tableData.push([
+              serialNo++,
               index === 0 ? type : '', // Only show Type on first row of group
               index === 0 ? design : '', // Only show Design on first row of group
               roll.roll_id,
               roll.color,
-              selectedCategory?.id === 'mate' ? `${roll.quantity || 1} Pcs` : `${roll.length} x ${roll.width}`,
+              ['mate', 'qaleen'].includes(selectedCategory?.id) ? `${roll.quantity || 1} Pcs` : `${roll.length || 0} x ${roll.width || 0}`,
               roll.status
             ]);
           });
@@ -403,7 +405,7 @@ export default function StockModule() {
 
       autoTable(doc, {
         startY: 40,
-        head: [['Type', 'Design', 'ID', 'Color', selectedCategory?.id === 'mate' ? 'Quantity' : 'Dimensions', 'Status']],
+        head: [['#', 'Type', 'Design', 'ID', 'Color', ['mate', 'qaleen'].includes(selectedCategory?.id) ? 'Quantity' : 'Dimensions', 'Status']],
         body: tableData,
         theme: 'grid',
         headStyles: { fillColor: [184, 134, 11], textColor: 255, fontStyle: 'bold' },
@@ -440,10 +442,11 @@ export default function StockModule() {
       doc.setTextColor(100);
       doc.text(`Generated on: ${new Date().toLocaleString()}`, 14, 28);
       
-      const totalQuantity = rolls.reduce((sum, r) => sum + (r.quantity || 1), 0);
-      doc.text(`Total Items: ${rolls.length} (${totalQuantity} pieces)`, 14, 34);
+      const stockRolls = rolls.filter(r => !r.factory && r.status !== 'Sold');
+      const totalQuantity = stockRolls.reduce((sum, r) => sum + (r.quantity || 1), 0);
+      doc.text(`Total Items: ${stockRolls.length} (${totalQuantity} pieces)`, 14, 34);
 
-      if (rolls.length === 0) {
+      if (stockRolls.length === 0) {
         alert("No items found in stock to export.");
         return;
       }
@@ -451,7 +454,7 @@ export default function StockModule() {
       const tableData = [];
       
       // Group data: Category -> Type -> Design -> Items
-      const grouped = rolls.reduce((acc, roll) => {
+      const grouped = stockRolls.reduce((acc, roll) => {
         const cat = categories.find(c => c.id === roll.category)?.title || roll.category || 'Uncategorized';
         const type = roll.product_type || 'Uncategorized';
         const design = roll.design || 'Natural';
@@ -478,16 +481,18 @@ export default function StockModule() {
         doc.text(`Category: ${cat.toUpperCase()}`, 14, currentY);
         currentY += 6;
 
+        let serialNo = 1;
         const tableData = [];
         Object.entries(types).forEach(([type, designs]) => {
           Object.entries(designs).forEach(([design, items]) => {
             items.forEach((roll, index) => {
               tableData.push([
+                serialNo++,
                 index === 0 ? type : '',
                 index === 0 ? design : '',
                 roll.roll_id,
                 roll.color,
-                roll.category === 'mate' ? `${roll.quantity || 1} Pcs` : `${roll.length} ft x ${roll.width} ft`,
+                ['mate', 'qaleen'].includes(roll.category) ? `${roll.quantity || 1} Pcs` : `${roll.length || 0} ft x ${roll.width || 0} ft`,
                 roll.status
               ]);
             });
@@ -496,7 +501,7 @@ export default function StockModule() {
 
         autoTable(doc, {
           startY: currentY,
-          head: [['Type', 'Design', 'ID', 'Color', 'Dimensions/Qty', 'Status']],
+          head: [['#', 'Type', 'Design', 'ID', 'Color', 'Dimensions/Qty', 'Status']],
           body: tableData,
           theme: 'grid',
           headStyles: { fillColor: [184, 134, 11], textColor: 255, fontStyle: 'bold' },
